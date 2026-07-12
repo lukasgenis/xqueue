@@ -1,0 +1,13 @@
+{
+  "name": "xqueue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private X/Twitter post scheduler on Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

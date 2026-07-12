@@ -1,0 +1,30 @@
+# Cloudflare Worker config for xqueue — a private X/Twitter post scheduler.
+# This is a Worker with static assets (NOT a Pages project). `wrangler deploy`
+# reads this file.
+#   - static UI served from ./public via the ASSETS binding
+#   - src/index.js handles the /api/* routes AND the scheduled() cron handler
+#   - the cron fires hourly; the handler decides whether it's time to post
+#     (based on the interval setting) and self-throttles under X's 17/24h cap
+name = "xqueue"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Fires every hour on the hour. The interval toggle (1/3/6/9/12/24h) lives in
+# D1, not here — the handler checks elapsed time each run, so changing the
+# toggle never requires a redeploy.
+[triggers]
+crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "xqueue"
+# Fill this in after `wrangler d1 create xqueue` (it prints the id).
+database_id = "8dcec775-ab8c-444b-91fc-88688952e411"
+
+# Secrets (set with `wrangler secret put NAME`, never committed):
+#   X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET  (the 4 from X)
+#   APP_SECRET                                                (UI passphrase)
