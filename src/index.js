@@ -75,6 +75,27 @@ async function handleApi(request, env, ctx, url) {
       return json({ ok: true, ...(await getState(env)) });
     }
 
+    // Edit the text of a still-queued post. Only 'queued' rows are editable —
+    // you can't rewrite something that already posted.
+    const edit = pathname.match(/^\/api\/queue\/(\d+)$/);
+    if (edit && method === "PATCH") {
+      const body = await request.json();
+      const text = String(body.text || "").trim();
+      if (!text) return json({ ok: false, error: "Empty post." }, 400);
+      if (text.length > MAX_TWEET_LEN) {
+        return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
+      }
+      const res = await env.DB.prepare(
+        "UPDATE queue SET text = ?1 WHERE id = ?2 AND status = 'queued'"
+      )
+        .bind(text, Number(edit[1]))
+        .run();
+      if (!res.meta || res.meta.changes === 0) {
+        return json({ ok: false, error: "Post not found or already posted." }, 404);
+      }
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
     if (pathname === "/api/interval" && method === "POST") {
       const body = await request.json();
       const hours = Number(body.hours);
