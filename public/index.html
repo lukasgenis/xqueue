@@ -129,6 +129,9 @@
     let secret = localStorage.getItem("xqueue_secret") || "";
     let state = null;
     let editingId = null; // id of the queued post currently being edited, or null
+    // On touch devices there's no Shift key and Return should insert a newline,
+    // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
 
     function ensureSecret() {
       if (!secret) {
@@ -235,7 +238,7 @@
           };
           ta.addEventListener("input", setCnt);
           ta.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save.click(); }
+            if (!isTouch && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save.click(); }
             if (e.key === "Escape") { e.preventDefault(); cancel.click(); }
           });
           save.onclick = () => saveEdit(item.id, ta.value.trim());
@@ -366,12 +369,17 @@
 
     document.getElementById("text").addEventListener("input", updateCount);
     document.getElementById("text").addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (!isTouch && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         add();
       }
     });
     document.getElementById("add").addEventListener("click", add);
+
+    // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
+    document.getElementById("text").placeholder = isTouch
+      ? "What's happening? Return adds a new line — tap Queue to add it."
+      : "What's happening? (Enter to queue, Shift+Enter for newline)";
 
     updateCount();
     refresh();
