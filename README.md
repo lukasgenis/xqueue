@@ -76,3 +76,5 @@ npx wrangler dev            # uses a local D1; cron won't fire automatically
 # trigger the scheduler manually against the dev server:
 curl -X POST localhost:8787/api/post-now -H "x-app-secret: <APP_SECRET>"
 ```
+
+<!-- autodeploy connectivity test 1783899459002 -->
