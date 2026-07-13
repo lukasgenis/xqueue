@@ -92,6 +92,11 @@
 
     .btn-secondary { background: var(--panel); padding: 8px 14px; font-size: 14px; }
     .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
+    /* On narrow screens the Bulk import button wraps below the interval row;
+       give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
+    @media (max-width: 520px) {
+      #importToggle { margin-top: 12px; }
+    }
     .import-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px; margin-top: 8px;
