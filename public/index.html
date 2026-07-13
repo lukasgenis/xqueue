@@ -397,6 +397,15 @@
       return h > 0 ? `in ${h}h ${m}m` : `in ${m}m`;
     }
 
+    function fmtRunway(days) {
+      if (!isFinite(days) || days <= 0) return "0 days";
+      if (days < 1) return Math.max(1, Math.round(days * 24)) + "h";
+      const val = days < 10
+        ? (Math.round(days * 10) / 10).toString().replace(/\.0$/, "")
+        : String(Math.round(days));
+      return val + (val === "1" ? " day" : " days");
+    }
+
     // Cost helpers (X prices in USD; we display AUD via the cron-cached rate).
     function fxRate() { return state && state.fx_usd_aud ? state.fx_usd_aud : 1.44; }
     function aud(usd, dp = 2) { return "A$" + (Number(usd || 0) * fxRate()).toFixed(dp); }
@@ -594,9 +603,16 @@
 
         const summary = document.getElementById("tabSummary");
         if (activeTab === "queue") {
-          summary.textContent = state.queued.length
-            ? `≈ ${aud(state.queue_estimate_usd)} to send this queue`
-            : "";
+          if (state.queued.length) {
+            const perDay = Math.min(24 / state.interval_hours, state.daily_cap);
+            const runwayDays = state.queued.length / perDay;
+            const empties = new Date(Date.now() + runwayDays * 86400000)
+              .toLocaleDateString(undefined, { month: "short", day: "numeric" });
+            summary.textContent =
+              `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${aud(state.queue_estimate_usd)} to send`;
+          } else {
+            summary.textContent = "";
+          }
         } else {
           summary.textContent = `${aud(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
         }
