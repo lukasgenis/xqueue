@@ -60,9 +60,12 @@
     .login-box input:focus { border-color: var(--accent-dim); }
     .login-box button { width: 100%; padding: 12px; }
     .login-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
-    header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
-    header .usage { font-size: 12px; color: var(--muted); }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    header .usage { font-size: 12px; color: var(--muted); text-align: right; }
+    .lockbtn { background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); padding: 5px 11px; font-size: 12px; line-height: 1; white-space: nowrap; }
+    .lockbtn:hover { color: var(--text); border-color: var(--accent-dim); }
 
     .composer {
       background: var(--panel);
@@ -235,7 +238,10 @@
   <div class="wrap">
     <header>
       <h1>xqueue</h1>
-      <span class="usage" id="usage"></span>
+      <div class="header-right">
+        <span class="usage" id="usage"></span>
+        <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock">🔒 Lock</button>
+      </div>
     </header>
 
     <div class="composer">
@@ -857,7 +863,14 @@
       }
     });
 
-    // ---- Login ----
+    // ---- Login / lock ----
+    document.getElementById("lockBtn").addEventListener("click", () => {
+      localStorage.removeItem("xqueue_secret");
+      secret = "";
+      state = null;
+      showLogin();
+    });
+
     document.getElementById("loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const val = document.getElementById("loginInput").value.trim();
