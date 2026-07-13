@@ -67,7 +67,6 @@
     .intervals { display: flex; gap: 5px; flex-wrap: wrap; }
     .intervals button { padding: 7px 11px; font-size: 14px; min-width: 40px; }
     .intervals button.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-    .intervals button.now.active { background: var(--danger); border-color: var(--danger); }
 
     .btn-secondary { background: var(--panel); padding: 8px 14px; font-size: 14px; }
     .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
@@ -137,6 +136,7 @@
       <div class="composer-bottom">
         <span class="count" id="count">0 / 280</span>
         <span class="spacer"></span>
+        <button class="btn-secondary" id="postNow">Post now</button>
         <button class="primary" id="add">Queue</button>
       </div>
     </div>
@@ -181,7 +181,6 @@
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
-    let postNow = false; // true = composer posts immediately (POST); false = queue
 
     function ensureSecret() {
       if (!secret) {
@@ -229,34 +228,20 @@
     function render() {
       if (!state) return;
 
-      // Mode selector: NOW (post immediately) + interval buttons (queue cadence).
+      // Interval selector — purely the queue's drain cadence (global).
       const box = document.getElementById("intervals");
       box.innerHTML = "";
-      const nowBtn = document.createElement("button");
-      nowBtn.textContent = "Now";
-      nowBtn.className = "now";
-      nowBtn.title = "Post immediately instead of queueing";
-      if (postNow) nowBtn.classList.add("active");
-      nowBtn.onclick = () => { postNow = true; render(); updateCount(); };
-      box.appendChild(nowBtn);
       INTERVALS.forEach((h) => {
         const b = document.createElement("button");
         b.textContent = h + "h";
         b.title = "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
-        if (!postNow && h === state.interval_hours) b.classList.add("active");
+        if (h === state.interval_hours) b.classList.add("active");
         b.onclick = async () => {
-          postNow = false;
           state = await api("/api/interval", { method: "POST", body: JSON.stringify({ hours: h }) });
           render();
-          updateCount();
         };
         box.appendChild(b);
       });
-      // Button label + label caption reflect the mode.
-      document.getElementById("add").textContent = postNow ? "POST" : "Queue";
-      document.getElementById("cadenceLabel").textContent = postNow
-        ? "Posting immediately"
-        : "Interval (whole queue)";
 
       // Usage + next line
       document.getElementById("usage").textContent = `${state.count24h}/${state.daily_cap} posted (24h)`;
@@ -400,26 +385,27 @@
       } catch (e) { /* handled in api() */ }
     }
 
-    async function add() {
+    async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
       if (!text) return;
-      const btn = document.getElementById("add");
-      btn.disabled = true;
+      const q = document.getElementById("add");
+      const p = document.getElementById("postNow");
+      q.disabled = true; p.disabled = true;
       try {
-        const path = postNow ? "/api/post-text" : "/api/queue";
+        const path = immediate ? "/api/post-text" : "/api/queue";
         const res = await api(path, { method: "POST", body: JSON.stringify({ text }) });
         if (res.ok) {
           state = res;
           ta.value = "";
           updateCount();
           render();
-          toast(postNow ? "Posted ✅" : "Queued");
+          toast(immediate ? "Posted ✅" : "Queued");
         } else {
-          toast(res.error || (postNow ? "Post failed" : "Failed to queue"));
+          toast(res.error || (immediate ? "Post failed" : "Failed to queue"));
         }
       } finally {
-        btn.disabled = false;
+        q.disabled = false; p.disabled = false;
       }
     }
 
@@ -429,17 +415,20 @@
       const c = document.getElementById("count");
       c.textContent = `${n} / 280`;
       c.classList.toggle("over", n > 280);
-      document.getElementById("add").disabled = n === 0 || n > 280;
+      const disabled = n === 0 || n > 280;
+      document.getElementById("add").disabled = disabled;
+      document.getElementById("postNow").disabled = disabled;
     }
 
     document.getElementById("text").addEventListener("input", updateCount);
     document.getElementById("text").addEventListener("keydown", (e) => {
       if (!isTouch && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        add();
+        add(false); // Enter queues; Post now is an explicit click
       }
     });
-    document.getElementById("add").addEventListener("click", add);
+    document.getElementById("add").addEventListener("click", () => add(false));
+    document.getElementById("postNow").addEventListener("click", () => add(true));
 
     // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
     document.getElementById("text").placeholder = isTouch
