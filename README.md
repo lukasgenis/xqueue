@@ -11,28 +11,35 @@ Mac-mini dependency, always on.
 
 - **Queue** — write a post, hit **Queue** (or Enter on desktop); it drops to the
   bottom. The top of the queue is what posts next.
-- **Post now** — post the composer text to X immediately (with a confirm), instead
-  of queueing. Records to history and counts toward the daily cap.
+- **Post now** — post immediately (with a themed confirm) instead of queueing:
+  the composer's **Post now** for new text, or the **➤** button on any queued
+  item to jump it to the front. Both record to history and count toward the cap.
 - **Interval** — 1/3/6/9/12/24 h toggle controlling how fast the queue drains.
   Global to the whole queue; stored in D1, so changing it never needs a redeploy.
-- **Edit / reorder / delete** — edit a queued post inline, move it up/down with
-  ▲▼ arrows, or remove it. Only queued (not yet posted) items are editable.
+- **Edit / reorder / delete** — edit a queued post inline (auto-growing box),
+  move it up/down with ▲▼, or delete it (with confirm). Queued items only.
 - **Bulk import** — paste many posts or upload a `.txt`/`.md`/`.csv`, split by
   blank line (multi-line posts) or one-per-line. Live count, skips over-280 /
   empty entries with a report.
-- **Queue / History tabs** — switch between what's pending and what's been
-  posted/failed, each with a live count.
+- **Cost tracking (AUD)** — live per-post cost estimate in the composer (flags
+  links, which are 13× pricier), per-item costs, a "cost to drain the queue"
+  total, and a running "spent so far" total. USD→AUD via a cron-cached live rate.
+- **Runway** — Queue tab shows how many days of posts remain at the current
+  interval, and the projected empties date.
+- **Queue / History tabs** — switch between pending and posted/failed, each with
+  a live count.
 - **Login + brute-force protection** — custom passphrase login page (no browser
   popups anywhere), per-IP rate limiting, constant-time secret comparison.
-- **Mobile-friendly** — 16px inputs (no iOS zoom), responsive controls, no sticky
-  composer.
+- **Mobile-friendly** — 16px inputs (no iOS zoom), tap-a-post to reveal its
+  actions, keyboard-aware edit box, responsive throughout.
 
 ## Architecture
 
 - **Cloudflare Worker** (`src/index.js`) serves the static UI from `./public` and
   handles the `/api/*` routes. Based on the `spudnote-web` skeleton.
-- **D1 database** `xqueue` holds the queue, the interval setting, and the
-  rate-limit log. Schema in `schema.sql`.
+- **D1 database** `xqueue` holds the queue (with per-post `cost_usd`), settings
+  (interval, last-posted, cached FX rate), and the auth rate-limit log. Schema in
+  `schema.sql`; column additions applied via `ALTER TABLE` on the live DB.
 - **Cron Trigger** (`0 * * * *`, in `wrangler.toml`) runs the scheduler hourly.
 - **OAuth 1.0a** user-context signing to `POST /2/tweets`, done in-Worker with
   Web Crypto (HMAC-SHA1) — no library. Signing was verified against Twitter's
@@ -116,11 +123,12 @@ top item** (`POST /api/post-now`) both still respect the daily cap.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Queue, history, interval, counts |
+| GET | `/api/state` | Queue, history, interval, counts, costs, FX rate |
 | POST | `/api/queue` | Add one post `{text}` |
 | POST | `/api/queue/bulk` | Add many `{texts:[]}` |
 | PATCH | `/api/queue/:id` | Edit a queued post `{text}` |
 | POST | `/api/queue/:id/move` | Reorder `{dir:"up"\|"down"}` |
+| POST | `/api/queue/:id/post-now` | Post that specific queued item now |
 | DELETE | `/api/queue/:id` | Remove a queued post |
 | POST | `/api/interval` | Set interval `{hours}` |
 | POST | `/api/post-now` | Force-post the oldest queued item |
