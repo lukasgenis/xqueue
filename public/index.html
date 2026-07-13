@@ -150,11 +150,17 @@
     .badge.next { color: var(--accent); border-color: var(--accent-dim); }
     .badge.posted { color: var(--ok); border-color: #1f5c3a; }
     .badge.failed { color: var(--danger); border-color: #5c2a2c; }
-    .item-actions { display: flex; gap: 2px; align-items: flex-start; }
+    .item-actions {
+      display: flex; gap: 6px; align-items: center; margin-top: 10px;
+      padding-top: 10px; border-top: 1px solid var(--border);
+    }
+    .item-actions .iconbtn { padding: 6px 12px; font-size: 16px; border: 1px solid var(--border); border-radius: 8px; }
+    .item-actions .iconbtn:hover:not(:disabled) { background: var(--panel-2); }
     .iconbtn { color: var(--muted); border: 0; background: transparent; padding: 2px 6px; font-size: 15px; line-height: 1; }
     .iconbtn:hover:not(:disabled) { color: var(--text); }
     .iconbtn:disabled { opacity: .25; cursor: default; }
-    .iconbtn.send { color: var(--accent); font-size: 13px; }
+    .iconbtn.send { color: var(--accent); }
+    .item-actions .iconbtn.send { border-color: var(--accent-dim); }
     .iconbtn.send:hover { color: #fff; }
     .del:hover:not(:disabled) { color: var(--danger); }
     .edit-area {
@@ -549,7 +555,7 @@
           render();
         };
         controls.append(up, down, send, edit, del);
-        el.appendChild(controls);
+        el.querySelector(".body").appendChild(controls); // actions row under the text
         q.appendChild(el);
       });
 
