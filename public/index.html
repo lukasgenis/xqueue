@@ -166,8 +166,8 @@
     .badge.next { color: var(--accent); border-color: var(--accent-dim); }
     .badge.posted { color: var(--ok); border-color: #1f5c3a; }
     .badge.failed { color: var(--danger); border-color: #5c2a2c; }
-    /* Desktop: compact icon buttons on the right of the row (default). */
-    .item-actions { display: flex; gap: 2px; align-items: flex-start; }
+    /* Desktop: compact icon buttons on the right, vertically centered in the row. */
+    .item-actions { display: flex; gap: 2px; align-items: center; align-self: center; }
     .iconbtn { color: var(--muted); border: 0; background: transparent; padding: 2px 6px; font-size: 15px; line-height: 1; }
     .iconbtn:hover:not(:disabled) { color: var(--text); }
     .iconbtn:disabled { opacity: .25; cursor: default; }
@@ -422,6 +422,12 @@
       return h > 0 ? `in ${h}h ${m}m` : `in ${m}m`;
     }
 
+    // Grow a textarea to fit its content so all text is visible without scrolling.
+    function autoGrow(ta) {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+    }
+
     function fmtRunway(days) {
       if (!isFinite(days) || days <= 0) return "0 day";
       if (days < 1) return Math.max(1, Math.round(days * 24)) + "h";
@@ -500,7 +506,7 @@
             cnt.classList.toggle("over", n > 280);
             save.disabled = n === 0 || n > 280;
           };
-          ta.addEventListener("input", setCnt);
+          ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
           ta.addEventListener("keydown", (e) => {
             if (!isTouch && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save.click(); }
             if (e.key === "Escape") { e.preventDefault(); cancel.click(); }
@@ -516,6 +522,7 @@
           el.appendChild(body);
           q.appendChild(el);
           setCnt();
+          autoGrow(ta); // size to fit the full text — no inner scrolling
           ta.focus();
           return;
         }
