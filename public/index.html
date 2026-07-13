@@ -35,6 +35,9 @@
       display: flex; align-items: center; justify-content: center;
       background: var(--bg); padding: 24px;
     }
+    /* The display:flex above would otherwise override the [hidden] attribute,
+       leaving the overlay stuck on screen after a successful unlock. */
+    .login-overlay[hidden] { display: none; }
     .login-box {
       width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px;
       background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 28px 24px;
