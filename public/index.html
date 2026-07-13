@@ -1,9 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
+  <!-- Reinforce that this is English so Chrome's content detector doesn't
+       misfire (it guesses French on this label-heavy, low-prose UI) and stop
+       it offering to translate. -->
+  <meta http-equiv="Content-Language" content="en" />
+  <meta name="google" content="notranslate" />
   <title>xqueue</title>
   <style>
     :root {
