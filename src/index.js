@@ -115,6 +115,12 @@ async function handleApi(request, env, ctx, url) {
       return await moveQueued(env, Number(mv[1]), body.dir === "down" ? "down" : "up");
     }
 
+    // Post a specific queued item immediately (still respects the daily cap).
+    const pn = pathname.match(/^\/api\/queue\/(\d+)\/post-now$/);
+    if (pn && method === "POST") {
+      return await postQueuedNow(env, Number(pn[1]));
+    }
+
     if (pathname === "/api/interval" && method === "POST") {
       const body = await request.json();
       const hours = Number(body.hours);
@@ -158,6 +164,30 @@ async function addToQueue(env, text) {
     .bind(text, Date.now())
     .run();
   return json({ ok: true, ...(await getState(env)) });
+}
+
+// Post a specific queued item right now, bypassing queue order and the interval
+// (still respects the daily cap). On success it becomes a 'posted' row and resets
+// the interval clock; on failure it stays queued so nothing is lost.
+async function postQueuedNow(env, id) {
+  const item = await env.DB.prepare(
+    "SELECT id, text FROM queue WHERE id = ?1 AND status = 'queued'"
+  ).bind(id).first();
+  if (!item) return json({ ok: false, error: "Post not found or already posted." }, 404);
+  if ((await countRecentPosts(env)) >= DAILY_CAP) {
+    return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
+  }
+  const now = Date.now();
+  try {
+    const tweetId = await postTweet(env, item.text);
+    await env.DB.prepare(
+      "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL, cost_usd = ?3 WHERE id = ?4"
+    ).bind(now, tweetId, postCostUsd(item.text), item.id).run();
+    await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1").bind(now).run();
+    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env)) });
+  } catch (err) {
+    return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
+  }
 }
 
 // Swap a queued post with its adjacent neighbor (by created_at) to reorder it.

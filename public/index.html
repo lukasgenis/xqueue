@@ -154,6 +154,8 @@
     .iconbtn { color: var(--muted); border: 0; background: transparent; padding: 2px 6px; font-size: 15px; line-height: 1; }
     .iconbtn:hover:not(:disabled) { color: var(--text); }
     .iconbtn:disabled { opacity: .25; cursor: default; }
+    .iconbtn.send { color: var(--accent); font-size: 13px; }
+    .iconbtn.send:hover { color: #fff; }
     .del:hover:not(:disabled) { color: var(--danger); }
     .edit-area {
       width: 100%; min-height: 60px; resize: vertical;
@@ -526,6 +528,12 @@
         down.disabled = i === state.queued.length - 1;
         down.onclick = () => moveItem(item.id, "down");
 
+        const send = document.createElement("button");
+        send.className = "iconbtn send";
+        send.textContent = "➤";
+        send.title = "Post this now";
+        send.onclick = () => postQueuedNow(item.id, item.text);
+
         const edit = document.createElement("button");
         edit.className = "iconbtn";
         edit.textContent = "✎";
@@ -540,7 +548,7 @@
           state = await api("/api/queue/" + item.id, { method: "DELETE" });
           render();
         };
-        controls.append(up, down, edit, del);
+        controls.append(up, down, send, edit, del);
         el.appendChild(controls);
         q.appendChild(el);
       });
@@ -581,6 +589,26 @@
       try {
         state = await api("/api/state");
         render();
+      } catch (e) { /* handled in api() */ }
+    }
+
+    async function postQueuedNow(id, text) {
+      const ok = await confirmDialog({
+        title: "Post to X now?",
+        body: text,
+        quote: true,
+        confirmLabel: "Post now",
+      });
+      if (!ok) return;
+      try {
+        const res = await api("/api/queue/" + id + "/post-now", { method: "POST" });
+        if (res.ok) {
+          state = res;
+          render();
+          toast("Posted ✅");
+        } else {
+          toast(res.error || "Post failed");
+        }
       } catch (e) { /* handled in api() */ }
     }
 
