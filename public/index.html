@@ -96,6 +96,9 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
+      /* Don't pin the composer on mobile — it eats the small viewport and
+         feels like it's following you as you scroll the queue. */
+      .composer { position: static; top: auto; }
     }
     .import-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
