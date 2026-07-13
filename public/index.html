@@ -116,6 +116,7 @@
          incl. the edit textarea — full width) and hide the action bar until
          the row is tapped, then reveal it spread evenly across the full width. */
       .item { flex-direction: column; align-items: stretch; }
+      .item .body { width: 100%; } /* ensure text + edit textarea span the row */
       .item.queued .body { cursor: pointer; }
       .item.queued .item-actions { display: none; }
       .item.queued.expanded .item-actions {
@@ -174,9 +175,9 @@
     .iconbtn.send:hover { color: #fff; }
     .del:hover:not(:disabled) { color: var(--danger); }
     .edit-area {
-      width: 100%; min-height: 60px; resize: vertical;
+      display: block; width: 100%; min-height: 92px; resize: vertical;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
-      color: var(--text); font: inherit; padding: 8px; outline: none;
+      color: var(--text); font: inherit; font-size: 16px; padding: 8px; outline: none;
     }
     .edit-area:focus { border-color: var(--accent-dim); }
     .edit-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
