@@ -120,6 +120,13 @@ async function handleApi(request, env, ctx, url) {
       return json({ ok: true, result, ...(await getState(env)) });
     }
 
+    // Post an arbitrary typed post immediately (the "NOW" / POST button), instead
+    // of adding it to the queue. Records it in history and counts toward the cap.
+    if (pathname === "/api/post-text" && method === "POST") {
+      const body = await request.json();
+      return await postTextNow(env, String(body.text || ""));
+    }
+
     return json({ ok: false, error: "Not found." }, 404);
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 500);
@@ -169,6 +176,35 @@ async function addBulk(env, texts) {
     skippedLong,
     ...(await getState(env)),
   });
+}
+
+// Post typed text right now, bypassing the queue. Respects the daily cap. On
+// success it's recorded as a 'posted' row (so it shows in history and counts
+// toward the 24h cap) and resets the interval clock so the queue keeps spacing.
+async function postTextNow(env, text) {
+  text = text.trim();
+  if (!text) return json({ ok: false, error: "Empty post." }, 400);
+  if (text.length > MAX_TWEET_LEN) {
+    return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
+  }
+  if ((await countRecentPosts(env)) >= DAILY_CAP) {
+    return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
+  }
+  const now = Date.now();
+  try {
+    const tweetId = await postTweet(env, text);
+    await env.DB.prepare(
+      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id) VALUES (?1, 'posted', ?2, ?2, ?3)"
+    )
+      .bind(text, now, tweetId)
+      .run();
+    await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
+      .bind(now)
+      .run();
+    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env)) });
+  } catch (err) {
+    return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
+  }
 }
 
 // Everything the UI needs in one call: the queued list (oldest first = next to

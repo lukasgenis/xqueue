@@ -23,8 +23,11 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      /* 16px base so text inputs never trigger iOS focus-zoom (they use font:inherit). */
+      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
+    /* Belt-and-suspenders: any focusable text field stays >=16px on iOS. */
+    textarea, input, select { font-size: 16px; }
     .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 80px; }
     header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
@@ -55,13 +58,19 @@
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
     button.primary:disabled { opacity: .4; cursor: not-allowed; }
 
-    .intervals { display: flex; gap: 4px; }
-    .intervals button { padding: 5px 9px; font-size: 13px; min-width: 34px; }
+    .controls {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin: 14px 2px 0;
+    }
+    .cadence { display: flex; flex-direction: column; gap: 6px; }
+    .ctl-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .intervals { display: flex; gap: 5px; flex-wrap: wrap; }
+    .intervals button { padding: 7px 11px; font-size: 14px; min-width: 40px; }
     .intervals button.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .intervals button.now.active { background: var(--danger); border-color: var(--danger); }
 
-    .import-toggle-row { margin: 10px 2px 0; }
-    .ghost { background: transparent; border: 0; color: var(--muted); padding: 4px 2px; font-size: 13px; }
-    .ghost:hover { color: var(--text); }
+    .btn-secondary { background: var(--panel); padding: 8px 14px; font-size: 14px; }
+    .btn-secondary:hover { border-color: var(--accent-dim); color: var(--text); }
     .import-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px; margin-top: 8px;
@@ -127,14 +136,17 @@
       <textarea id="text" placeholder="What's happening? (Enter to queue, Shift+Enter for newline)"></textarea>
       <div class="composer-bottom">
         <span class="count" id="count">0 / 280</span>
-        <div class="intervals" id="intervals"></div>
         <span class="spacer"></span>
         <button class="primary" id="add">Queue</button>
       </div>
     </div>
 
-    <div class="import-toggle-row">
-      <button id="importToggle" class="ghost">⇪ Bulk import</button>
+    <div class="controls">
+      <div class="cadence">
+        <span class="ctl-label" id="cadenceLabel">Interval (whole queue)</span>
+        <div class="intervals" id="intervals"></div>
+      </div>
+      <button id="importToggle" class="btn-secondary">⇪ Bulk import</button>
     </div>
 
     <div class="import-panel" id="importPanel" hidden>
@@ -169,6 +181,7 @@
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    let postNow = false; // true = composer posts immediately (POST); false = queue
 
     function ensureSecret() {
       if (!secret) {
@@ -216,20 +229,34 @@
     function render() {
       if (!state) return;
 
-      // Interval toggle
+      // Mode selector: NOW (post immediately) + interval buttons (queue cadence).
       const box = document.getElementById("intervals");
       box.innerHTML = "";
+      const nowBtn = document.createElement("button");
+      nowBtn.textContent = "Now";
+      nowBtn.className = "now";
+      nowBtn.title = "Post immediately instead of queueing";
+      if (postNow) nowBtn.classList.add("active");
+      nowBtn.onclick = () => { postNow = true; render(); updateCount(); };
+      box.appendChild(nowBtn);
       INTERVALS.forEach((h) => {
         const b = document.createElement("button");
-        b.textContent = h;
-        b.title = h + " hour" + (h > 1 ? "s" : "");
-        if (h === state.interval_hours) b.classList.add("active");
+        b.textContent = h + "h";
+        b.title = "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
+        if (!postNow && h === state.interval_hours) b.classList.add("active");
         b.onclick = async () => {
+          postNow = false;
           state = await api("/api/interval", { method: "POST", body: JSON.stringify({ hours: h }) });
           render();
+          updateCount();
         };
         box.appendChild(b);
       });
+      // Button label + label caption reflect the mode.
+      document.getElementById("add").textContent = postNow ? "POST" : "Queue";
+      document.getElementById("cadenceLabel").textContent = postNow
+        ? "Posting immediately"
+        : "Interval (whole queue)";
 
       // Usage + next line
       document.getElementById("usage").textContent = `${state.count24h}/${state.daily_cap} posted (24h)`;
@@ -380,15 +407,16 @@
       const btn = document.getElementById("add");
       btn.disabled = true;
       try {
-        const res = await api("/api/queue", { method: "POST", body: JSON.stringify({ text }) });
+        const path = postNow ? "/api/post-text" : "/api/queue";
+        const res = await api(path, { method: "POST", body: JSON.stringify({ text }) });
         if (res.ok) {
           state = res;
           ta.value = "";
           updateCount();
           render();
-          toast("Queued");
+          toast(postNow ? "Posted ✅" : "Queued");
         } else {
-          toast(res.error || "Failed to queue");
+          toast(res.error || (postNow ? "Post failed" : "Failed to queue"));
         }
       } finally {
         btn.disabled = false;
