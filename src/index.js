@@ -66,6 +66,12 @@ async function handleApi(request, env, ctx, url) {
       return await addToQueue(env, String(body.text || ""));
     }
 
+    // Bulk import: add many posts at once. Body: { texts: string[] }.
+    if (pathname === "/api/queue/bulk" && method === "POST") {
+      const body = await request.json();
+      return await addBulk(env, Array.isArray(body.texts) ? body.texts : []);
+    }
+
     // /api/queue/:id  (DELETE)
     const del = pathname.match(/^\/api\/queue\/(\d+)$/);
     if (del && method === "DELETE") {
@@ -132,6 +138,37 @@ async function addToQueue(env, text) {
     .bind(text, Date.now())
     .run();
   return json({ ok: true, ...(await getState(env)) });
+}
+
+// Bulk insert. Validates each entry; too-long / empty ones are skipped and
+// counted so the UI can report them. created_at is spaced by 1ms per item so
+// paste order is preserved in the queue.
+async function addBulk(env, texts) {
+  const clean = [];
+  let skippedEmpty = 0;
+  let skippedLong = 0;
+  for (let t of texts) {
+    t = String(t == null ? "" : t).trim();
+    if (!t) { skippedEmpty++; continue; }
+    if (t.length > MAX_TWEET_LEN) { skippedLong++; continue; }
+    clean.push(t);
+  }
+  if (clean.length) {
+    const now = Date.now();
+    const stmts = clean.map((t, i) =>
+      env.DB.prepare(
+        "INSERT INTO queue (text, status, created_at) VALUES (?1, 'queued', ?2)"
+      ).bind(t, now + i)
+    );
+    await env.DB.batch(stmts);
+  }
+  return json({
+    ok: true,
+    added: clean.length,
+    skippedEmpty,
+    skippedLong,
+    ...(await getState(env)),
+  });
 }
 
 // Everything the UI needs in one call: the queued list (oldest first = next to
