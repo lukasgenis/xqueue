@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS queue (
   error      TEXT,                               -- last error message, if any
   tweet_id   TEXT,                               -- X tweet id once posted
   created_at INTEGER NOT NULL,                   -- epoch ms, added-to-queue time
-  posted_at  INTEGER                             -- epoch ms, when it actually posted
+  posted_at  INTEGER,                            -- epoch ms, when it actually posted
+  cost_usd   REAL                                -- USD charged at post time (X pay-per-use)
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue (status, created_at);
@@ -21,7 +22,9 @@ CREATE INDEX IF NOT EXISTS idx_queue_posted ON queue (posted_at);
 CREATE TABLE IF NOT EXISTS settings (
   id             INTEGER PRIMARY KEY CHECK (id = 1),
   interval_hours INTEGER NOT NULL DEFAULT 3,      -- 1 | 3 | 6 | 9 | 12 | 24
-  last_posted_at INTEGER                          -- epoch ms of last successful post
+  last_posted_at INTEGER,                         -- epoch ms of last successful post
+  fx_usd_aud     REAL,                            -- cached USD->AUD rate (refreshed by cron)
+  fx_updated_at  INTEGER                          -- epoch ms the rate was last fetched
 );
 
 INSERT OR IGNORE INTO settings (id, interval_hours) VALUES (1, 3);

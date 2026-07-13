@@ -73,6 +73,9 @@
     .composer-bottom { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
     .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .count.over { color: var(--danger); }
+    .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .cost.link { color: var(--danger); }
+    .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
     .spacer { flex: 1; }
     button {
       font: inherit; cursor: pointer; border-radius: 999px;
@@ -215,6 +218,7 @@
       <textarea id="text" placeholder="What's happening? (Enter to queue, Shift+Enter for newline)"></textarea>
       <div class="composer-bottom">
         <span class="count" id="count">0 / 280</span>
+        <span class="cost" id="costEst"></span>
         <span class="spacer"></span>
         <button class="btn-secondary" id="postNow">Post now</button>
         <button class="primary" id="add">Queue</button>
@@ -253,6 +257,7 @@
       <button class="tab active" id="tabQueue">Queue</button>
       <button class="tab" id="tabHistory">History</button>
     </div>
+    <div class="tab-summary" id="tabSummary"></div>
     <div class="list" id="queue"></div>
     <div class="list" id="history" hidden></div>
   </div>
@@ -392,6 +397,14 @@
       return h > 0 ? `in ${h}h ${m}m` : `in ${m}m`;
     }
 
+    // Cost helpers (X prices in USD; we display AUD via the cron-cached rate).
+    function fxRate() { return state && state.fx_usd_aud ? state.fx_usd_aud : 1.44; }
+    function aud(usd, dp = 2) { return "A$" + (Number(usd || 0) * fxRate()).toFixed(dp); }
+    function textHasLink(t) {
+      return /(https?:\/\/|www\.)\S+/i.test(t) ||
+        /\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|xyz|me|gg|so|to|tv|info|link|page|site|news|blog|store|shop)\b/i.test(t);
+    }
+
     function render() {
       if (!state) return;
 
@@ -478,6 +491,7 @@
             <div class="meta">
               ${i === 0 ? '<span class="badge next">next</span>' : `<span>#${i + 1} in line</span>`}
               <span>added ${fmtWhen(item.created_at)}</span>
+              <span>· ${aud(item.cost_usd)}${textHasLink(item.text) ? " (link)" : ""}</span>
             </div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
@@ -534,7 +548,7 @@
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
-            <div class="meta">${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${link}${err}</span></div>
+            <div class="meta">${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${item.status === "posted" ? " · " + aud(item.cost_usd) : ""}${link}${err}</span></div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
         h.appendChild(el);
@@ -577,6 +591,15 @@
         document.getElementById("tabQueue").textContent = `Queue (${state.queued.length})`;
         const ht = state.historyTotal != null ? state.historyTotal : state.history.length;
         document.getElementById("tabHistory").textContent = `History (${ht})`;
+
+        const summary = document.getElementById("tabSummary");
+        if (activeTab === "queue") {
+          summary.textContent = state.queued.length
+            ? `≈ ${aud(state.queue_estimate_usd)} to send this queue`
+            : "";
+        } else {
+          summary.textContent = `${aud(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
+        }
       }
     }
 
@@ -637,6 +660,13 @@
       const disabled = n === 0 || n > 280;
       document.getElementById("add").disabled = disabled;
       document.getElementById("postNow").disabled = disabled;
+
+      // Live cost estimate for the current post (flags links — 13x pricier).
+      const costEl = document.getElementById("costEst");
+      const link = n > 0 && textHasLink(ta.value);
+      const usd = link ? 0.2 : 0.015;
+      costEl.textContent = n === 0 ? "" : "· " + aud(usd) + (link ? " · link" : "");
+      costEl.classList.toggle("link", link);
     }
 
     document.getElementById("text").addEventListener("input", updateCount);

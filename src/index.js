@@ -18,6 +18,13 @@ const DAILY_CAP = 17; // X Free tier: 17 POST /2/tweets per 24h (per user & per 
 const MAX_ATTEMPTS = 3; // give up on a post after this many failures
 const MAX_TWEET_LEN = 280;
 
+// X pay-per-use pricing (USD). A post with a link costs ~13x a plain one.
+const COST_TEXT_USD = 0.015;
+const COST_LINK_USD = 0.2;
+const DEFAULT_FX_USD_AUD = 1.44; // fallback until the cron fetches a live rate
+const FX_URL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=AUD";
+const FX_MAX_AGE_MS = 12 * 60 * 60 * 1000; // refetch the rate if older than this
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -224,9 +231,9 @@ async function postTextNow(env, text) {
   try {
     const tweetId = await postTweet(env, text);
     await env.DB.prepare(
-      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id) VALUES (?1, 'posted', ?2, ?2, ?3)"
+      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd) VALUES (?1, 'posted', ?2, ?2, ?3, ?4)"
     )
-      .bind(text, now, tweetId)
+      .bind(text, now, tweetId, postCostUsd(text))
       .run();
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
@@ -262,6 +269,28 @@ async function getState(env) {
     ).first()
   ).n;
 
+  // Cost estimates. Per-item cost is attached to each row; queued uses the
+  // live heuristic, posted uses the stored charge (falling back to the
+  // heuristic for rows saved before cost tracking existed).
+  let queueEstimateUsd = 0;
+  for (const q of queued) {
+    q.cost_usd = postCostUsd(q.text);
+    queueEstimateUsd += q.cost_usd;
+  }
+  for (const h of history) {
+    if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text) : 0;
+  }
+  const totalSpentUsd = (
+    await env.DB.prepare(
+      "SELECT COALESCE(SUM(cost_usd), 0) AS s FROM queue WHERE status = 'posted'"
+    ).first()
+  ).s;
+  const spentPosts = (
+    await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM queue WHERE status = 'posted'"
+    ).first()
+  ).n;
+
   const count24h = await countRecentPosts(env);
   const now = Date.now();
   const intervalMs = settings.interval_hours * 60 * 60 * 1000;
@@ -276,6 +305,10 @@ async function getState(env) {
     queued,
     history,
     historyTotal,
+    fx_usd_aud: settings.fx_usd_aud || DEFAULT_FX_USD_AUD,
+    queue_estimate_usd: queueEstimateUsd,
+    total_spent_usd: totalSpentUsd,
+    spent_posts: spentPosts,
   };
 }
 
@@ -284,11 +317,21 @@ async function getState(env) {
 // ---------------------------------------------------------------------------
 
 async function runScheduler(env) {
+  // Housekeeping: drop stale rate-limit rows so the table stays tiny.
   try {
-    // Housekeeping: drop stale rate-limit rows so the table stays tiny.
     await env.DB.prepare("DELETE FROM auth_attempts WHERE ts < ?1")
       .bind(Date.now() - AUTH_WINDOW_MS)
       .run();
+  } catch (e) {
+    console.error("auth_attempts cleanup failed:", e);
+  }
+  // Keep the USD->AUD rate fresh (isolated so an FX outage never blocks posting).
+  try {
+    await refreshFx(env);
+  } catch (e) {
+    console.error("fx refresh failed:", e);
+  }
+  try {
     return await postNext(env, { ignoreInterval: false });
   } catch (err) {
     console.error("scheduler error:", err);
@@ -326,9 +369,9 @@ async function postNext(env, { ignoreInterval }) {
   try {
     const tweetId = await postTweet(env, item.text);
     await env.DB.prepare(
-      "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL WHERE id = ?3"
+      "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL, cost_usd = ?3 WHERE id = ?4"
     )
-      .bind(now, tweetId, item.id)
+      .bind(now, tweetId, postCostUsd(item.text), item.id)
       .run();
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
@@ -360,9 +403,9 @@ async function countRecentPosts(env) {
 
 async function getSettings(env) {
   const s = await env.DB.prepare(
-    "SELECT interval_hours, last_posted_at FROM settings WHERE id = 1"
+    "SELECT interval_hours, last_posted_at, fx_usd_aud, fx_updated_at FROM settings WHERE id = 1"
   ).first();
-  return s || { interval_hours: 3, last_posted_at: null };
+  return s || { interval_hours: 3, last_posted_at: null, fx_usd_aud: null, fx_updated_at: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +517,36 @@ async function checkAuth(request, env) {
     return { ok: false, status: 401, error: "Incorrect passphrase." };
   }
   return { ok: true };
+}
+
+// Heuristic: does a post contain a URL/link? X charges $0.20 for link posts vs
+// $0.015 for plain text/media, so this drives the cost estimate.
+function hasLink(text) {
+  return (
+    /(https?:\/\/|www\.)\S+/i.test(text) ||
+    /\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|xyz|me|gg|so|to|tv|info|link|page|site|news|blog|store|shop)\b/i.test(text)
+  );
+}
+
+function postCostUsd(text) {
+  return hasLink(text) ? COST_LINK_USD : COST_TEXT_USD;
+}
+
+// Refresh the cached USD->AUD rate from a free FX API (ECB data, no key).
+// No-op if the cached rate is still fresh. Failures are swallowed by the caller.
+async function refreshFx(env) {
+  const s = await getSettings(env);
+  const now = Date.now();
+  if (s.fx_usd_aud && s.fx_updated_at && now - s.fx_updated_at < FX_MAX_AGE_MS) return;
+  const res = await fetch(FX_URL, { headers: { accept: "application/json" } });
+  if (!res.ok) return;
+  const data = await res.json();
+  const rate = data && data.rates && data.rates.AUD;
+  if (typeof rate === "number" && rate > 0) {
+    await env.DB.prepare("UPDATE settings SET fx_usd_aud = ?1, fx_updated_at = ?2 WHERE id = 1")
+      .bind(rate, now)
+      .run();
+  }
 }
 
 // Constant-time string compare (avoids leaking match progress via timing).
