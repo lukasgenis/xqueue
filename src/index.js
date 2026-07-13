@@ -100,6 +100,14 @@ async function handleApi(request, env, ctx, url) {
       return json({ ok: true, ...(await getState(env)) });
     }
 
+    // Reorder a queued post up/down one slot by swapping timestamps with its
+    // neighbor. Body: { dir: "up" | "down" }.
+    const mv = pathname.match(/^\/api\/queue\/(\d+)\/move$/);
+    if (mv && method === "POST") {
+      const body = await request.json();
+      return await moveQueued(env, Number(mv[1]), body.dir === "down" ? "down" : "up");
+    }
+
     if (pathname === "/api/interval" && method === "POST") {
       const body = await request.json();
       const hours = Number(body.hours);
@@ -142,6 +150,30 @@ async function addToQueue(env, text) {
   )
     .bind(text, Date.now())
     .run();
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+// Swap a queued post with its adjacent neighbor (by created_at) to reorder it.
+// Ordering is by created_at ASC, so "up" = earlier timestamp, "down" = later.
+async function moveQueued(env, id, dir) {
+  const item = await env.DB.prepare(
+    "SELECT id, created_at FROM queue WHERE id = ?1 AND status = 'queued'"
+  ).bind(id).first();
+  if (!item) return json({ ok: false, error: "Post not found or already posted." }, 404);
+
+  const neighbor = await env.DB.prepare(
+    dir === "up"
+      ? "SELECT id, created_at FROM queue WHERE status = 'queued' AND created_at < ?1 ORDER BY created_at DESC LIMIT 1"
+      : "SELECT id, created_at FROM queue WHERE status = 'queued' AND created_at > ?1 ORDER BY created_at ASC LIMIT 1"
+  ).bind(item.created_at).first();
+
+  // Already at the top/bottom — nothing to do.
+  if (neighbor) {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(neighbor.created_at, item.id),
+      env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(item.created_at, neighbor.id),
+    ]);
+  }
   return json({ ok: true, ...(await getState(env)) });
 }
 
@@ -220,9 +252,15 @@ async function getState(env) {
   const history = (
     await env.DB.prepare(
       "SELECT id, text, status, tweet_id, error, posted_at, created_at FROM queue " +
-        "WHERE status IN ('posted','failed') ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 25"
+        "WHERE status IN ('posted','failed') ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
     ).all()
   ).results;
+
+  const historyTotal = (
+    await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM queue WHERE status IN ('posted','failed')"
+    ).first()
+  ).n;
 
   const count24h = await countRecentPosts(env);
   const now = Date.now();
@@ -237,6 +275,7 @@ async function getState(env) {
     daily_cap: DAILY_CAP,
     queued,
     history,
+    historyTotal,
   };
 }
 

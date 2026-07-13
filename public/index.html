@@ -60,7 +60,6 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 14px;
-      position: sticky; top: 12px; z-index: 5;
     }
     textarea {
       width: 100%; min-height: 84px; resize: vertical;
@@ -96,9 +95,6 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
-      /* Don't pin the composer on mobile — it eats the small viewport and
-         feels like it's following you as you scroll the queue. */
-      .composer { position: static; top: auto; }
       /* Import panel: split choice on its own full row, file picker next,
          then the count + action buttons on a clean bottom row. */
       .split-group { flex-basis: 100%; }
@@ -141,10 +137,11 @@
     .badge.next { color: var(--accent); border-color: var(--accent-dim); }
     .badge.posted { color: var(--ok); border-color: #1f5c3a; }
     .badge.failed { color: var(--danger); border-color: #5c2a2c; }
-    .controls { display: flex; gap: 2px; align-items: flex-start; }
+    .item-actions { display: flex; gap: 2px; align-items: flex-start; }
     .iconbtn { color: var(--muted); border: 0; background: transparent; padding: 2px 6px; font-size: 15px; line-height: 1; }
-    .iconbtn:hover { color: var(--text); }
-    .del:hover { color: var(--danger); }
+    .iconbtn:hover:not(:disabled) { color: var(--text); }
+    .iconbtn:disabled { opacity: .25; cursor: default; }
+    .del:hover:not(:disabled) { color: var(--danger); }
     .edit-area {
       width: 100%; min-height: 60px; resize: vertical;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
@@ -156,6 +153,10 @@
     .edit-bar button { padding: 4px 12px; font-size: 13px; }
 
     .section-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 26px 2px 10px; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 22px 0 12px; }
+    .tab { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 9px 14px; font-size: 15px; margin-bottom: -1px; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
     .empty { color: var(--muted); font-size: 14px; padding: 24px 4px; text-align: center; }
     a { color: var(--accent); }
     .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -243,11 +244,12 @@
 
     <div class="next-line" id="next"></div>
 
-    <div class="section-label">Queue &middot; next post first</div>
+    <div class="tabs">
+      <button class="tab active" id="tabQueue">Queue</button>
+      <button class="tab" id="tabHistory">History</button>
+    </div>
     <div class="list" id="queue"></div>
-
-    <div class="section-label">History</div>
-    <div class="list" id="history"></div>
+    <div class="list" id="history" hidden></div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -268,6 +270,7 @@
     let secret = localStorage.getItem("xqueue_secret") || "";
     let state = null;
     let editingId = null; // id of the queued post currently being edited, or null
+    let activeTab = "queue"; // which list tab is showing: "queue" | "history"
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
@@ -474,12 +477,28 @@
           </div>`;
         el.querySelector(".txt").textContent = item.text;
         const controls = document.createElement("div");
-        controls.className = "controls";
+        controls.className = "item-actions";
+
+        const up = document.createElement("button");
+        up.className = "iconbtn";
+        up.textContent = "▲";
+        up.title = "Move up";
+        up.disabled = i === 0;
+        up.onclick = () => moveItem(item.id, "up");
+
+        const down = document.createElement("button");
+        down.className = "iconbtn";
+        down.textContent = "▼";
+        down.title = "Move down";
+        down.disabled = i === state.queued.length - 1;
+        down.onclick = () => moveItem(item.id, "down");
+
         const edit = document.createElement("button");
         edit.className = "iconbtn";
         edit.textContent = "✎";
         edit.title = "Edit";
         edit.onclick = () => { editingId = item.id; render(); };
+
         const del = document.createElement("button");
         del.className = "iconbtn del";
         del.textContent = "×";
@@ -488,7 +507,7 @@
           state = await api("/api/queue/" + item.id, { method: "DELETE" });
           render();
         };
-        controls.append(edit, del);
+        controls.append(up, down, edit, del);
         el.appendChild(controls);
         q.appendChild(el);
       });
@@ -515,6 +534,8 @@
         el.querySelector(".txt").textContent = item.text;
         h.appendChild(el);
       });
+
+      applyTab(); // update tab labels/counts and which list is visible
     }
 
     function escapeHtml(s) {
@@ -528,6 +549,25 @@
         state = await api("/api/state");
         render();
       } catch (e) { /* handled in api() */ }
+    }
+
+    async function moveItem(id, dir) {
+      try {
+        state = await api("/api/queue/" + id + "/move", { method: "POST", body: JSON.stringify({ dir }) });
+        render();
+      } catch (e) { /* handled in api() */ }
+    }
+
+    function applyTab() {
+      document.getElementById("queue").hidden = activeTab !== "queue";
+      document.getElementById("history").hidden = activeTab !== "history";
+      document.getElementById("tabQueue").classList.toggle("active", activeTab === "queue");
+      document.getElementById("tabHistory").classList.toggle("active", activeTab === "history");
+      if (state) {
+        document.getElementById("tabQueue").textContent = `Queue (${state.queued.length})`;
+        const ht = state.historyTotal != null ? state.historyTotal : state.history.length;
+        document.getElementById("tabHistory").textContent = `History (${ht})`;
+      }
     }
 
     async function saveEdit(id, text) {
@@ -598,6 +638,10 @@
     });
     document.getElementById("add").addEventListener("click", () => add(false));
     document.getElementById("postNow").addEventListener("click", () => add(true));
+
+    // Queue / History tabs
+    document.getElementById("tabQueue").addEventListener("click", () => { activeTab = "queue"; applyTab(); });
+    document.getElementById("tabHistory").addEventListener("click", () => { activeTab = "history"; applyTab(); });
 
     // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
     document.getElementById("text").placeholder = isTouch
