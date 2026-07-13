@@ -10,7 +10,27 @@
   <meta http-equiv="Content-Language" content="en" />
   <meta name="google" content="notranslate" />
   <title>xqueue</title>
+  <!-- Icons + PWA. "xq" set in Space Grotesk Bold (glyph outlines baked into the
+       SVG/PNGs, so they render without a web font). -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0e1113" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="xqueue" />
   <style>
+    /* Space Grotesk Bold, subset to just the logo letters (x,q,u,e) and inlined
+       as woff2 so the "xqueue" wordmark renders offline with no external request. */
+    @font-face {
+      font-family: "Space Grotesk";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url(data:font/woff2;base64,AAEAAAAQAQAABAAAR0RFRgARAAMAAAQgAAAAGEdQT1NEdkx1AAAEOAAAACBHU1VCuPq49AAABFgAAAAqT1MvMhJ8VE4AAAGIAAAAYFNUQVR5k2tJAAAEhAAAACpjbWFwARIBQQAAAfwAAABMZ2FzcAAAABAAAAQYAAAACGdseWaJMhvhAAACXAAAAU5oZWFkI4C//AAAAQwAAAA2aGhlYQYsAooAAAFEAAAAJGhtdHgNBQEXAAAB6AAAABRsb2NhAMIBEgAAAlAAAAAMbWF4cAAIACYAAAFoAAAAIG5hbWUFbA/zAAADrAAAAExwb3N0/58AMgAAA/gAAAAgcHJlcGgGjIUAAAJIAAAABwABAAAAAgAAM7rwsV8PPPUAAwPoAAAAANucIpkAAAAA5npbSgAa/zgCOAH+AAAABgACAAAAAAAAAAEAAAPY/twAAAOOABoAGgI4AAEAAAAAAAAAAAAAAAAAAAAFAAEAAAAFACUAAgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAABAI9ArwABQAAAooCWAAAAEsCigJYAAABXgAyASMAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAARksAAADAAGUAeAPY/twAAAR+ASQAAAABAAAAAAHmArwAAAAgAAMDjgBfAkEALgJ+AC4CaABCAlAAGgAAAAIAAAADAAAAFAADAAEAAAAUAAQAOAAAAAoACAACAAIAZQBxAHUAeP//AAAAZQBxAHUAeP///5z/kf+O/4wAAQAAAAAAAAAAAAC4Af+FsASNAAAAAAAANABrAI4ApwACAC7/8gIXAf4AGQAgAABFIiYmNTU0NjYzMhYWFRUhFhYzMjY3Fw4CAzMmJiMiBgEoSnE/PnBKSWw8/pcCSDQ1Mg1nDjVYvegEPTEzPA4/c04MTnM/QXNMKzNALhw2Gj0rAT8rNDQAAAIALv84AjgB/gAWACQAAEURIw4CIyImJjU1NDY2MzIWFzM1MxEBMjY1NTQmIyIGFRUUFgG6EgomPS08Zj4+ZztERxESfP78O01OOjpOTsgBAREhFTtyURBRcjstHTz9SAEoS0gKSEtLSApISwAAAQBC//gCIgHwABUAAEUiJiY1ETMRFBYzMjY1NTMRIzUjBgYBAzpXMH43MzpAfnwSDEIINV49ASj+4jg4TUX8/hBBGTAAAAEAGgAAAjYB8AANAABzNyczFzM3MwcXIycjBxq0spJxEnGSsrSUcRJx+valpfb6p6cAAAAAAAMAKgADAAEECQACAA4AAAADAAEECQEAAAwADgADAAEECQEEAAgAGgBSAGUAZwB1AGwAYQByAFcAZQBpAGcAaAB0AEIAbwBsAGQAAwAAAAAAAP+cADIAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAPAAEAAAAMAAAAAAAAAAEAAQADAAEAAAABAAEAAAAKABwAHgABREZMVAAIAAQAAAAA//8AAAAAAAAAAQAAAAoAJgAoAAJERkxUAA5sYXRuABgABAAAAAD//wAAAAAAAAAAAAAAAAABAAEACAABAAAAFAABAAAAHAACd2dodAEAAAAAAgABAAAAAAEEArwAAAAA) format("woff2");
+    }
     :root {
       --bg: #0e1113;
       --panel: #171b1f;
@@ -62,6 +82,8 @@
     .login-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
+    /* Wordmark: Space Grotesk Bold, white. */
+    .logo { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
     .header-right { display: flex; align-items: center; gap: 12px; }
     header .usage { font-size: 12px; color: var(--muted); text-align: right; }
     .lockbtn { background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); padding: 5px 11px; font-size: 12px; line-height: 1; white-space: nowrap; }
@@ -226,7 +248,7 @@
 <body>
   <div class="login-overlay" id="login" hidden>
     <form class="login-box" id="loginForm">
-      <h1>xqueue</h1>
+      <h1 class="logo">xqueue</h1>
       <p class="login-sub">Enter your passphrase to continue</p>
       <input type="password" id="loginInput" autocomplete="current-password"
              placeholder="Passphrase" autocapitalize="off" autocorrect="off" spellcheck="false" />
@@ -237,7 +259,7 @@
 
   <div class="wrap">
     <header>
-      <h1>xqueue</h1>
+      <h1 class="logo">xqueue</h1>
       <div class="header-right">
         <span class="usage" id="usage"></span>
         <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock">🔒 Lock</button>
