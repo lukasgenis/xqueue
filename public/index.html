@@ -29,6 +29,25 @@
     /* Belt-and-suspenders: any focusable text field stays >=16px on iOS. */
     textarea, input, select { font-size: 16px; }
     .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 80px; }
+
+    .login-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg); padding: 24px;
+    }
+    .login-box {
+      width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 28px 24px;
+    }
+    .login-box h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+    .login-sub { margin: 0; color: var(--muted); font-size: 13px; }
+    .login-box input {
+      width: 100%; padding: 12px 14px; border-radius: 10px;
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text); outline: none;
+    }
+    .login-box input:focus { border-color: var(--accent-dim); }
+    .login-box button { width: 100%; padding: 12px; }
+    .login-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
     header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
     header .usage { font-size: 12px; color: var(--muted); }
@@ -125,6 +144,17 @@
   </style>
 </head>
 <body>
+  <div class="login-overlay" id="login" hidden>
+    <form class="login-box" id="loginForm">
+      <h1>xqueue</h1>
+      <p class="login-sub">Enter your passphrase to continue</p>
+      <input type="password" id="loginInput" autocomplete="current-password"
+             placeholder="Passphrase" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <button type="submit" class="primary" id="loginBtn">Unlock</button>
+      <p class="login-error" id="loginError" hidden></p>
+    </form>
+  </div>
+
   <div class="wrap">
     <header>
       <h1>xqueue</h1>
@@ -182,23 +212,57 @@
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
 
-    function ensureSecret() {
-      if (!secret) {
-        secret = prompt("Enter the xqueue passphrase:") || "";
-        localStorage.setItem("xqueue_secret", secret);
+    function showLogin(error) {
+      const el = document.getElementById("login");
+      el.hidden = false;
+      const errEl = document.getElementById("loginError");
+      errEl.textContent = error || "";
+      errEl.hidden = !error;
+      const input = document.getElementById("loginInput");
+      input.value = "";
+      input.focus();
+    }
+
+    function hideLogin() {
+      document.getElementById("login").hidden = true;
+    }
+
+    // Validate a passphrase by hitting /api/state. On success, unlock + store.
+    async function tryUnlock(pass) {
+      secret = pass;
+      try {
+        const res = await fetch("/api/state", {
+          headers: { "content-type": "application/json", "x-app-secret": secret },
+        });
+        if (res.ok) {
+          localStorage.setItem("xqueue_secret", secret);
+          state = await res.json();
+          hideLogin();
+          render();
+          return true;
+        }
+        const data = await res.json().catch(() => ({}));
+        secret = "";
+        localStorage.removeItem("xqueue_secret");
+        showLogin(data.error || "Incorrect passphrase.");
+        return false;
+      } catch (e) {
+        secret = "";
+        showLogin("Connection error — try again.");
+        return false;
       }
     }
 
     async function api(path, opts = {}) {
-      ensureSecret();
       const res = await fetch(path, {
         ...opts,
         headers: { "content-type": "application/json", "x-app-secret": secret, ...(opts.headers || {}) },
       });
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 429) {
+        const data = await res.json().catch(() => ({}));
         localStorage.removeItem("xqueue_secret");
         secret = "";
-        toast("Wrong passphrase — reload to retry");
+        showLogin(data.error || "Session ended — sign in again.");
         throw new Error("unauthorized");
       }
       return res.json();
@@ -363,6 +427,7 @@
     }
 
     async function refresh() {
+      if (!secret) return; // locked — login page is showing
       if (editingId !== null) return; // don't clobber an in-progress edit
       try {
         state = await api("/api/state");
@@ -388,7 +453,8 @@
     async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
-      if (!text) return;
+      if (!text) return; // nothing to post/queue
+      if (immediate && !confirm("Post this to X right now?\n\n" + text)) return;
       const q = document.getElementById("add");
       const p = document.getElementById("postNow");
       q.disabled = true; p.disabled = true;
@@ -504,8 +570,25 @@
       }
     });
 
+    // ---- Login ----
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const val = document.getElementById("loginInput").value.trim();
+      if (!val) return;
+      const btn = document.getElementById("loginBtn");
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+      await tryUnlock(val);
+      btn.disabled = false;
+      btn.textContent = "Unlock";
+    });
+
     updateCount();
-    refresh();
+    if (secret) {
+      tryUnlock(secret); // validate the stored passphrase; shows login if invalid
+    } else {
+      showLogin();
+    }
     setInterval(refresh, 30000); // keep countdown / usage fresh
   </script>
 </body>

@@ -25,3 +25,11 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 INSERT OR IGNORE INTO settings (id, interval_hours) VALUES (1, 3);
+
+-- Failed passphrase attempts, for per-IP rate limiting. Pruned by the cron.
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  ip TEXT    NOT NULL,
+  ts INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_ip_ts ON auth_attempts (ip, ts);

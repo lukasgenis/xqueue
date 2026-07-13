@@ -42,16 +42,14 @@ export default {
 // ---------------------------------------------------------------------------
 
 async function handleApi(request, env, ctx, url) {
-  // Shared-secret gate. If APP_SECRET isn't configured, the API is open — we
-  // warn rather than silently allow, since this thing can post to your account.
-  if (env.APP_SECRET) {
-    const provided = request.headers.get("x-app-secret") || "";
-    if (provided !== env.APP_SECRET) {
-      return json({ ok: false, error: "Unauthorized." }, 401);
-    }
-  }
-
   if (!env.DB) return json({ ok: false, error: "Database not wired up." }, 500);
+
+  // Shared-secret gate with per-IP rate limiting. The passphrase should still be
+  // long & random — this is defense-in-depth, not a substitute for entropy.
+  if (env.APP_SECRET) {
+    const gate = await checkAuth(request, env);
+    if (!gate.ok) return json({ ok: false, error: gate.error }, gate.status);
+  }
 
   try {
     const { pathname } = url;
@@ -248,6 +246,10 @@ async function getState(env) {
 
 async function runScheduler(env) {
   try {
+    // Housekeeping: drop stale rate-limit rows so the table stays tiny.
+    await env.DB.prepare("DELETE FROM auth_attempts WHERE ts < ?1")
+      .bind(Date.now() - AUTH_WINDOW_MS)
+      .run();
     return await postNext(env, { ignoreInterval: false });
   } catch (err) {
     console.error("scheduler error:", err);
@@ -406,6 +408,45 @@ async function hmacSha1(key, message) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Auth gate: locks out an IP after too many failed passphrase attempts in a
+// sliding window, then constant-time compares the provided secret.
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_MAX_FAILS = 10;
+
+async function checkAuth(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const now = Date.now();
+
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM auth_attempts WHERE ip = ?1 AND ts > ?2"
+  )
+    .bind(ip, now - AUTH_WINDOW_MS)
+    .first();
+  if (row && row.n >= AUTH_MAX_FAILS) {
+    return { ok: false, status: 429, error: "Too many attempts. Try again in a few minutes." };
+  }
+
+  const provided = request.headers.get("x-app-secret") || "";
+  if (!timingSafeEqual(provided, env.APP_SECRET)) {
+    await env.DB.prepare("INSERT INTO auth_attempts (ip, ts) VALUES (?1, ?2)")
+      .bind(ip, now)
+      .run();
+    return { ok: false, status: 401, error: "Incorrect passphrase." };
+  }
+  return { ok: true };
+}
+
+// Constant-time string compare (avoids leaking match progress via timing).
+function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
