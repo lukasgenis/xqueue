@@ -398,12 +398,12 @@
     }
 
     function fmtRunway(days) {
-      if (!isFinite(days) || days <= 0) return "0 days";
+      if (!isFinite(days) || days <= 0) return "0 day";
       if (days < 1) return Math.max(1, Math.round(days * 24)) + "h";
       const val = days < 10
         ? (Math.round(days * 10) / 10).toString().replace(/\.0$/, "")
         : String(Math.round(days));
-      return val + (val === "1" ? " day" : " days");
+      return val + " day"; // attributive ("14 day runway"), always singular
     }
 
     // Cost helpers (X prices in USD; we display AUD via the cron-cached rate).
