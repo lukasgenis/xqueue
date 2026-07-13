@@ -524,6 +524,9 @@
           setCnt();
           autoGrow(ta); // size to fit the full text — no inner scrolling
           ta.focus();
+          // Pull the edit box up so the on-screen keyboard doesn't cover it.
+          // Deferred so it runs after render()'s scroll-restore and the keyboard opens.
+          setTimeout(() => ta.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
           return;
         }
 
