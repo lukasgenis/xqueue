@@ -144,6 +144,31 @@
     a { color: var(--accent); }
     .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
     .toast.show { opacity: 1; }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 60;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.55); padding: 24px;
+    }
+    .modal-overlay[hidden] { display: none; } /* author display:flex would beat [hidden] otherwise */
+    .modal-box {
+      width: 100%; max-width: 380px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+      padding: 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    }
+    .modal-title { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+    .modal-body {
+      margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.45;
+      white-space: pre-wrap; word-wrap: break-word;
+      max-height: 40vh; overflow-y: auto;
+    }
+    .modal-body.quote {
+      color: var(--text); background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .modal-actions button { padding: 8px 16px; font-size: 14px; }
+    .modal-actions .danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -205,6 +230,17 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <div class="modal-overlay" id="modal" hidden>
+    <div class="modal-box">
+      <p class="modal-title" id="modalTitle"></p>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions">
+        <button id="modalCancel">Cancel</button>
+        <button class="primary" id="modalConfirm">Confirm</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const INTERVALS = [1, 3, 6, 9, 12, 24];
@@ -276,6 +312,41 @@
       t.textContent = msg;
       t.classList.add("show");
       setTimeout(() => t.classList.remove("show"), 2200);
+    }
+
+    // Custom confirm modal (replaces the native confirm()). Returns a Promise<bool>.
+    // Confirm resolves true; Cancel / backdrop click / Escape resolve false.
+    function confirmDialog(opts = {}) {
+      return new Promise((resolve) => {
+        const overlay = document.getElementById("modal");
+        const confirmBtn = document.getElementById("modalConfirm");
+        const cancelBtn = document.getElementById("modalCancel");
+        document.getElementById("modalTitle").textContent = opts.title || "Are you sure?";
+        const bodyEl = document.getElementById("modalBody");
+        bodyEl.textContent = opts.body || "";
+        bodyEl.className = "modal-body" + (opts.quote ? " quote" : "");
+        confirmBtn.textContent = opts.confirmLabel || "Confirm";
+        confirmBtn.className = opts.danger ? "danger" : "primary";
+        cancelBtn.textContent = opts.cancelLabel || "Cancel";
+
+        function onKey(e) {
+          if (e.key === "Escape") close(false);
+          if (e.key === "Enter") close(true);
+        }
+        function close(result) {
+          overlay.hidden = true;
+          confirmBtn.onclick = cancelBtn.onclick = overlay.onclick = null;
+          document.removeEventListener("keydown", onKey);
+          resolve(result);
+        }
+        confirmBtn.onclick = () => close(true);
+        cancelBtn.onclick = () => close(false);
+        overlay.onclick = (e) => { if (e.target === overlay) close(false); };
+        document.addEventListener("keydown", onKey);
+
+        overlay.hidden = false;
+        confirmBtn.focus();
+      });
     }
 
     function fmtWhen(ms) {
@@ -457,7 +528,15 @@
       const ta = document.getElementById("text");
       const text = ta.value.trim();
       if (!text) return; // nothing to post/queue
-      if (immediate && !confirm("Post this to X right now?\n\n" + text)) return;
+      if (immediate) {
+        const ok = await confirmDialog({
+          title: "Post to X now?",
+          body: text,
+          quote: true,
+          confirmLabel: "Post now",
+        });
+        if (!ok) return;
+      }
       const q = document.getElementById("add");
       const p = document.getElementById("postNow");
       q.disabled = true; p.disabled = true;
