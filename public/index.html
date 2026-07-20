@@ -215,6 +215,18 @@
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
     .empty { color: var(--muted); font-size: 14px; padding: 24px 4px; text-align: center; }
+    /* "Load more" tile — same footprint as a post, dashed blue outline that
+       (with its text) brightens to the accent on hover. */
+    .load-more {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 62px; padding: 12px 14px;
+      background: transparent;
+      border: 1px dashed var(--accent-dim); border-radius: 12px;
+      color: var(--muted); font-size: 14px;
+      cursor: pointer; user-select: none;
+      transition: border-color .12s, color .12s;
+    }
+    .load-more:hover { border-color: var(--accent); color: var(--accent); }
     a { color: var(--accent); }
     .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
     .toast.show { opacity: 1; }
@@ -333,6 +345,8 @@
     let state = null;
     let editingId = null; // id of the queued post currently being edited, or null
     let expandedId = null; // id of the queued post whose actions are revealed (mobile)
+    let queueVisible = 50; // how many queued posts to render ("Load more" raises this)
+    let historyExtra = []; // older history rows loaded past the first page (Load more)
     let activeTab = "queue"; // which list tab is showing: "queue" | "history"
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
@@ -510,7 +524,7 @@
       if (!state.queued.length) {
         q.innerHTML = '<div class="empty">Nothing queued. Type above and hit Enter.</div>';
       }
-      state.queued.forEach((item, i) => {
+      state.queued.slice(0, queueVisible).forEach((item, i) => {
         const el = document.createElement("div");
         el.className = "item queued" + (i === 0 ? " next" : "") + (item.id === expandedId ? " expanded" : "");
 
@@ -630,13 +644,32 @@
         q.appendChild(el);
       });
 
+      // "Load more" tile — reveals the next chunk of queued posts (client-side;
+      // the whole queue is already loaded, this just caps how many we render).
+      if (state.queued.length > queueVisible) {
+        const more = document.createElement("div");
+        more.className = "load-more";
+        more.textContent = "Load more…";
+        more.onclick = () => { queueVisible += 50; render(); };
+        q.appendChild(more);
+      }
+
       // History (most recent first)
       const h = document.getElementById("history");
       h.innerHTML = "";
-      if (!state.history.length) {
+      // Merge the first page (from /api/state) with any older pages pulled in via
+      // "Load more", de-duping by id (a fresh post can shift the page boundary).
+      const histSeen = new Set();
+      const histList = [];
+      for (const row of state.history.concat(historyExtra)) {
+        if (histSeen.has(row.id)) continue;
+        histSeen.add(row.id);
+        histList.push(row);
+      }
+      if (!histList.length) {
         h.innerHTML = '<div class="empty">No posts yet.</div>';
       }
-      state.history.forEach((item) => {
+      histList.forEach((item) => {
         const el = document.createElement("div");
         el.className = "item";
         const badge = item.status === "posted"
@@ -653,6 +686,17 @@
         h.appendChild(el);
       });
 
+      // "Load more" tile for history — cursor-paginates the next older page.
+      if (histList.length < (state.historyTotal || 0)) {
+        const oldest = histList[histList.length - 1];
+        const before = oldest ? (oldest.posted_at || oldest.created_at) : Date.now();
+        const more = document.createElement("div");
+        more.className = "load-more";
+        more.textContent = "Load more…";
+        more.onclick = () => loadMoreHistory(before);
+        h.appendChild(more);
+      }
+
       applyTab(); // update tab labels/counts and which list is visible
       window.scrollTo(0, scrollY); // restore scroll so actions don't jump the page
     }
@@ -668,6 +712,21 @@
         state = await api("/api/state");
         render();
       } catch (e) { /* handled in api() */ }
+    }
+
+    let loadingHistory = false;
+    async function loadMoreHistory(before) {
+      if (loadingHistory) return;
+      loadingHistory = true;
+      try {
+        const res = await api("/api/history?before=" + before);
+        if (res && res.ok && Array.isArray(res.history)) {
+          historyExtra = historyExtra.concat(res.history);
+          render();
+        }
+      } catch (e) { /* handled in api() */ } finally {
+        loadingHistory = false;
+      }
     }
 
     async function postQueuedNow(id, text) {
@@ -890,6 +949,8 @@
       localStorage.removeItem("xqueue_secret");
       secret = "";
       state = null;
+      historyExtra = [];
+      queueVisible = 50;
       showLogin();
     });
 

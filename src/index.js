@@ -66,6 +66,27 @@ async function handleApi(request, env, ctx, url) {
       return json({ ok: true, ...(await getState(env)) });
     }
 
+    // Older history pages for the "Load more" button. Cursor-based on the
+    // coalesced timestamp (not OFFSET) so a fresh post at the top never shifts
+    // the boundary and causes a skipped/duplicated row.
+    if (pathname === "/api/history" && method === "GET") {
+      const before = Number(url.searchParams.get("before")) || Date.now();
+      const rows = (
+        await env.DB.prepare(
+          "SELECT id, text, status, tweet_id, error, posted_at, created_at FROM queue " +
+            "WHERE status IN ('posted','failed') AND COALESCE(posted_at, created_at) < ?1 " +
+            "ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
+        )
+          .bind(before)
+          .all()
+      ).results;
+      // Mirror getState: recompute per-row cost heuristically so figures match.
+      for (const h of rows) {
+        if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text) : 0;
+      }
+      return json({ ok: true, history: rows });
+    }
+
     if (pathname === "/api/queue" && method === "POST") {
       const body = await request.json();
       return await addToQueue(env, String(body.text || ""));
