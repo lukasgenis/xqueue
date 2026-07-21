@@ -106,10 +106,9 @@
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
-    /* Row holding the tab summary + the Randomise button (queue tab only). */
-    .tab-tools { display: flex; align-items: center; gap: 10px; margin: -4px 2px 12px; }
-    .tab-tools .tab-summary { margin: 0; flex: 1 1 auto; min-width: 0; }
-    #shuffleQueue { flex: 0 0 auto; padding: 5px 12px; font-size: 13px; white-space: nowrap; }
+    /* Randomise button lives on the tabs row: pushed right, vertically centered
+       against the taller tab buttons (which define the row height). */
+    #shuffleQueue { margin-left: auto; align-self: center; padding: 5px 12px; font-size: 13px; white-space: nowrap; }
     .spacer { flex: 1; }
     button {
       font: inherit; cursor: pointer; border-radius: 999px;
@@ -136,6 +135,9 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
+      /* The tabs row is tight on phones — collapse Randomise to just its icon. */
+      #shuffleQueue { padding: 7px 10px; }
+      #shuffleQueue .lbl { display: none; }
       /* Import panel: split choice on its own full row, file picker next,
          then the count + action buttons on a clean bottom row. */
       .split-group { flex-basis: 100%; }
@@ -324,11 +326,9 @@
     <div class="tabs">
       <button class="tab active" id="tabQueue">Queue</button>
       <button class="tab" id="tabHistory">History</button>
+      <button class="btn-secondary" id="shuffleQueue" title="Randomise queue" hidden>🔀<span class="lbl"> Randomise</span></button>
     </div>
-    <div class="tab-tools">
-      <span class="tab-summary" id="tabSummary"></span>
-      <button class="btn-secondary" id="shuffleQueue" hidden>🔀 Randomise</button>
-    </div>
+    <div class="tab-summary" id="tabSummary"></div>
     <div class="list" id="queue"></div>
     <div class="list" id="history" hidden></div>
   </div>
