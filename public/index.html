@@ -135,8 +135,10 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
-      /* The tabs row is tight on phones — collapse Randomise to just its icon. */
-      #shuffleQueue { padding: 7px 10px; }
+      /* On phones the tabs row is tight, so Randomise sheds its button chrome and
+         shows as a bare shuffle icon (matching the row-action iconbtns). */
+      #shuffleQueue { background: transparent; border: 0; color: var(--muted); padding: 4px 6px; font-size: 18px; }
+      #shuffleQueue:hover { color: var(--text); }
       #shuffleQueue .lbl { display: none; }
       /* Import panel: split choice on its own full row, file picker next,
          then the count + action buttons on a clean bottom row. */
