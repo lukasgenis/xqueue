@@ -106,6 +106,10 @@
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
+    /* Row holding the tab summary + the Randomise button (queue tab only). */
+    .tab-tools { display: flex; align-items: center; gap: 10px; margin: -4px 2px 12px; }
+    .tab-tools .tab-summary { margin: 0; flex: 1 1 auto; min-width: 0; }
+    #shuffleQueue { flex: 0 0 auto; padding: 5px 12px; font-size: 13px; white-space: nowrap; }
     .spacer { flex: 1; }
     button {
       font: inherit; cursor: pointer; border-radius: 999px;
@@ -321,7 +325,10 @@
       <button class="tab active" id="tabQueue">Queue</button>
       <button class="tab" id="tabHistory">History</button>
     </div>
-    <div class="tab-summary" id="tabSummary"></div>
+    <div class="tab-tools">
+      <span class="tab-summary" id="tabSummary"></span>
+      <button class="btn-secondary" id="shuffleQueue" hidden>🔀 Randomise</button>
+    </div>
     <div class="list" id="queue"></div>
     <div class="list" id="history" hidden></div>
   </div>
@@ -769,6 +776,29 @@
       }
     }
 
+    // Shuffle the entire queue into a random order. Confirmed via the same modal
+    // the delete action uses (confirmDialog), not a native prompt.
+    async function randomiseQueue() {
+      if (!state || state.queued.length < 2) return;
+      const ok = await confirmDialog({
+        title: "Randomise the queue?",
+        body: "This shuffles all " + state.queued.length + " queued posts into a new random order. Nothing is deleted, and your interval and history are untouched.",
+        confirmLabel: "Randomise",
+      });
+      if (!ok) return;
+      try {
+        const res = await api("/api/queue/shuffle", { method: "POST" });
+        if (res.ok) {
+          expandedId = null;
+          state = res;
+          render();
+          toast("Queue randomised");
+        } else {
+          toast(res.error || "Couldn't randomise");
+        }
+      } catch (e) { /* handled in api() */ }
+    }
+
     function applyTab() {
       document.getElementById("queue").hidden = activeTab !== "queue";
       document.getElementById("history").hidden = activeTab !== "history";
@@ -778,6 +808,7 @@
         document.getElementById("tabQueue").textContent = `Queue (${state.queued.length})`;
         const ht = state.historyTotal != null ? state.historyTotal : state.history.length;
         document.getElementById("tabHistory").textContent = `History (${ht})`;
+        document.getElementById("shuffleQueue").hidden = !(activeTab === "queue" && state.queued.length >= 2);
 
         const summary = document.getElementById("tabSummary");
         if (activeTab === "queue") {
@@ -879,6 +910,7 @@
     // Queue / History tabs
     document.getElementById("tabQueue").addEventListener("click", () => { activeTab = "queue"; applyTab(); });
     document.getElementById("tabHistory").addEventListener("click", () => { activeTab = "history"; applyTab(); });
+    document.getElementById("shuffleQueue").addEventListener("click", randomiseQueue);
 
     // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
     document.getElementById("text").placeholder = isTouch

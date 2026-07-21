@@ -98,6 +98,11 @@ async function handleApi(request, env, ctx, url) {
       return await addBulk(env, Array.isArray(body.texts) ? body.texts : []);
     }
 
+    // Shuffle the whole queue into a random order (reorders only; nothing lost).
+    if (pathname === "/api/queue/shuffle" && method === "POST") {
+      return await shuffleQueue(env);
+    }
+
     // /api/queue/:id  (DELETE)
     const del = pathname.match(/^\/api\/queue\/(\d+)$/);
     if (del && method === "DELETE") {
@@ -233,6 +238,32 @@ async function moveQueued(env, id, dir) {
       env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(neighbor.created_at, item.id),
       env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(item.created_at, neighbor.id),
     ]);
+  }
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+// Randomise the order of the entire queue. Ordering is defined purely by
+// created_at ASC (moveQueued reorders by swapping timestamps), so we permute
+// the queued rows' EXISTING created_at values across the rows with a
+// Fisher-Yates shuffle. Reusing the same timestamp multiset keeps ordering
+// stable relative to posted rows and never invents colliding values.
+async function shuffleQueue(env) {
+  const rows = (
+    await env.DB.prepare(
+      "SELECT id, created_at FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
+    ).all()
+  ).results;
+  if (rows.length > 1) {
+    const times = rows.map((r) => r.created_at);
+    for (let i = times.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [times[i], times[j]] = [times[j], times[i]];
+    }
+    await env.DB.batch(
+      rows.map((r, k) =>
+        env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(times[k], r.id)
+      )
+    );
   }
   return json({ ok: true, ...(await getState(env)) });
 }
