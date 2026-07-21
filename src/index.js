@@ -145,7 +145,9 @@ async function handleApi(request, env, ctx, url) {
     if (pathname === "/api/interval" && method === "POST") {
       const body = await request.json();
       const hours = Number(body.hours);
-      if (![1, 3, 6, 9, 12, 24].includes(hours)) {
+      // 0 = paused: the queue is halted and the cron never auto-posts (manual
+      // "post now" still works). Any other value must be a known cadence.
+      if (![0, 1, 3, 6, 9, 12, 24].includes(hours)) {
         return json({ ok: false, error: "Invalid interval." }, 400);
       }
       await env.DB.prepare("UPDATE settings SET interval_hours = ?1 WHERE id = 1")
@@ -344,8 +346,11 @@ async function getState(env) {
 
   const count24h = await countRecentPosts(env);
   const now = Date.now();
+  // interval_hours === 0 means paused — there is no next eligible time.
   const intervalMs = settings.interval_hours * 60 * 60 * 1000;
-  const nextEligibleAt = Math.max(now, (settings.last_posted_at || 0) + intervalMs);
+  const nextEligibleAt = settings.interval_hours
+    ? Math.max(now, (settings.last_posted_at || 0) + intervalMs)
+    : null;
 
   return {
     interval_hours: settings.interval_hours,
@@ -397,6 +402,9 @@ async function postNext(env, { ignoreInterval }) {
 
   // 1. Enough time elapsed since the last post? (cron only)
   if (!ignoreInterval) {
+    // Paused (interval_hours === 0): the cron never auto-posts. Manual "post
+    // now" paths pass ignoreInterval, so they still fire while paused.
+    if (!settings.interval_hours) return { skipped: "paused" };
     const intervalMs = settings.interval_hours * 60 * 60 * 1000;
     if (now - (settings.last_posted_at || 0) < intervalMs) {
       return { skipped: "interval" };

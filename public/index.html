@@ -340,7 +340,7 @@
   </div>
 
   <script>
-    const INTERVALS = [1, 3, 6, 9, 12, 24];
+    const INTERVALS = [1, 3, 6, 9, 12, 24, 0]; // 0 (∞) = paused: nothing auto-posts
     let secret = localStorage.getItem("xqueue_secret") || "";
     let state = null;
     let editingId = null; // id of the queued post currently being edited, or null
@@ -496,8 +496,10 @@
       box.innerHTML = "";
       INTERVALS.forEach((h) => {
         const b = document.createElement("button");
-        b.textContent = h + "h";
-        b.title = "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
+        b.textContent = h === 0 ? "∞" : h + "h";
+        b.title = h === 0
+          ? "Pause the queue — nothing auto-posts until you pick an interval"
+          : "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
         if (h === state.interval_hours) b.classList.add("active");
         b.onclick = async () => {
           state = await api("/api/interval", { method: "POST", body: JSON.stringify({ hours: h }) });
@@ -507,9 +509,14 @@
       });
 
       // Usage + next line
+      const paused = state.interval_hours === 0;
       document.getElementById("usage").textContent = `${state.count24h}/${state.daily_cap} posted (24h)`;
       const nextEl = document.getElementById("next");
-      if (state.queued.length) {
+      if (paused) {
+        nextEl.innerHTML = state.queued.length
+          ? `Queue <b>paused</b> &middot; nothing auto-posts &middot; ${state.queued.length} waiting`
+          : `Queue is empty &middot; <b>paused</b>`;
+      } else if (state.queued.length) {
         const capped = state.count24h >= state.daily_cap;
         nextEl.innerHTML = capped
           ? `Daily cap reached — next post <b>after older posts age out</b>. Interval: every ${state.interval_hours}h.`
@@ -774,13 +781,16 @@
 
         const summary = document.getElementById("tabSummary");
         if (activeTab === "queue") {
-          if (state.queued.length) {
+          if (state.queued.length && state.interval_hours) {
             const perDay = Math.min(24 / state.interval_hours, state.daily_cap);
             const runwayDays = state.queued.length / perDay;
             const empties = new Date(Date.now() + runwayDays * 86400000)
               .toLocaleDateString(undefined, { month: "short", day: "numeric" });
             summary.textContent =
               `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${aud(state.queue_estimate_usd)} to send`;
+          } else if (state.queued.length) {
+            // Paused: no drain cadence, so no runway — just the cost to send.
+            summary.textContent = `Paused · ≈ ${aud(state.queue_estimate_usd)} to send`;
           } else {
             summary.textContent = "";
           }
