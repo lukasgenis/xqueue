@@ -1435,20 +1435,25 @@
       }
     }
 
-    // Smart Review: pending deck → swipe now; empty deck → toggle paste/list panel.
+    // Smart Review:
+    //   panel open  → close it (same toggle-off as Bulk import)
+    //   panel closed + pending → swipe now
+    //   panel closed + empty  → open paste/list panel
     function smartReviewToggle() {
       document.getElementById("importPanel").hidden = true;
       if (swipeMode) return;
+      const p = document.getElementById("reviewPanel");
+      if (!p.hidden) {
+        p.hidden = true;
+        return;
+      }
       if (reviewItems().length > 0) {
         openSwipeMode();
         return;
       }
-      const p = document.getElementById("reviewPanel");
-      p.hidden = !p.hidden;
-      if (!p.hidden) {
-        updateReviewSeedCount();
-        renderReviewDeckList();
-      }
+      p.hidden = false;
+      updateReviewSeedCount();
+      renderReviewDeckList();
     }
 
     function currentSwipeItem() {
