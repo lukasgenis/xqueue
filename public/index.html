@@ -106,9 +106,13 @@
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
-    /* Randomise button lives on the tabs row: pushed right, vertically centered
-       against the taller tab buttons (which define the row height). */
-    #shuffleQueue { margin-left: auto; align-self: center; padding: 5px 12px; font-size: 13px; white-space: nowrap; }
+    /* Randomise: bare shuffle icon on the tabs row (desktop + mobile). */
+    #shuffleQueue {
+      margin-left: auto; align-self: center;
+      background: transparent; border: 0; color: var(--muted);
+      padding: 4px 6px; font-size: 18px; line-height: 1; white-space: nowrap;
+    }
+    #shuffleQueue:hover { color: var(--text); border-color: transparent; }
     .spacer { flex: 1; }
     button {
       font: inherit; cursor: pointer; border-radius: 999px;
@@ -138,11 +142,6 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
-      /* On phones the tabs row is tight, so Randomise sheds its button chrome and
-         shows as a bare shuffle icon (matching the row-action iconbtns). */
-      #shuffleQueue { background: transparent; border: 0; color: var(--muted); padding: 4px 6px; font-size: 18px; }
-      #shuffleQueue:hover { color: var(--text); }
-      #shuffleQueue .lbl { display: none; }
       /* Import panel: split choice on its own full row, file picker next,
          then the count + action buttons on a clean bottom row. */
       .split-group { flex-basis: 100%; }
@@ -318,10 +317,17 @@
       text-align: center; color: var(--muted); padding: 40px 16px;
     }
     .swipe-empty h2 { color: var(--text); margin: 0 0 8px; font-size: 20px; }
+    /* Review button: keep label + count pill on one optical centre line. */
+    #reviewToggle {
+      display: inline-flex; align-items: center; gap: 6px;
+    }
     .badge-count {
-      display: inline-block; min-width: 1.4em; padding: 0 6px; margin-left: 4px;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 1.45em; height: 1.45em; padding: 0 6px; margin: 0;
       border-radius: 999px; background: var(--accent); color: #fff;
-      font-size: 11px; font-weight: 700; line-height: 1.6; vertical-align: middle;
+      font-size: 11px; font-weight: 700; line-height: 1;
+      /* Avoid emoji/text baseline shift against the label. */
+      position: relative; top: 0;
     }
 
     .next-line { font-size: 12px; color: var(--muted); margin: 14px 2px 8px; }
@@ -446,7 +452,7 @@
       </div>
       <div class="controls-actions">
         <button id="importToggle" class="btn-secondary">⇪ Bulk import</button>
-        <button id="reviewToggle" class="btn-secondary">✂ Review<span class="badge-count" id="reviewBadge" hidden>0</span></button>
+        <button id="reviewToggle" class="btn-secondary"><span class="sym" aria-hidden="true">✂︎</span> Review<span class="badge-count" id="reviewBadge" hidden>0</span></button>
       </div>
     </div>
 
@@ -536,7 +542,7 @@
     <div class="tabs">
       <button class="tab active" id="tabQueue">Queue</button>
       <button class="tab" id="tabHistory">History</button>
-      <button class="btn-secondary" id="shuffleQueue" title="Randomise queue" hidden>🔀<span class="lbl"> Randomise</span></button>
+      <button id="shuffleQueue" title="Randomise queue" aria-label="Randomise queue" hidden>🔀</button>
     </div>
     <div class="tab-summary" id="tabSummary"></div>
     <div class="list" id="queue"></div>
