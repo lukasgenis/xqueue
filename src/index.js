@@ -580,6 +580,7 @@ async function generateReviewDrafts(env, body) {
     "- Do not copy samples verbatim. Do not invent fake URLs.",
     "- Avoid links unless samples clearly use them (links cost more to post).",
     "- Output ONLY the posts, separated by a blank line. No intro, no bullets, no quotes around posts.",
+    "- Do not use --- or **** or other divider lines between posts — blank lines only.",
   ].join("\n");
 
   const userParts = [
@@ -717,9 +718,13 @@ function parseGeneratedPosts(text, want) {
     if (!t) continue;
     // Drop leftover labels
     if (/^(here are|posts?:|output:)/i.test(t) && t.length < 40) continue;
+    // Models often insert markdown horizontal rules as separators (---, ***, ___).
+    if (/^[-–—*_=~]{2,}$/.test(t)) continue;
     // House style: always lowercase; no em/en dashes (model may ignore prompt rules).
     t = normalizeDraftStyle(t);
     if (!t) continue;
+    // Re-check after normalize (em dashes may collapse into ---)
+    if (/^[-–—*_=~]{2,}$/.test(t)) continue;
     if (t.length > MAX_TWEET_LEN) t = t.slice(0, MAX_TWEET_LEN).trim();
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
