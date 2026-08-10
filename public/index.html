@@ -428,8 +428,18 @@
     }
     .load-more:hover { border-color: var(--accent); color: var(--accent); }
     a { color: var(--accent); }
-    .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-    .toast.show { opacity: 1; }
+    .toast {
+      position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(6px);
+      max-width: min(320px, calc(100vw - 32px));
+      background: var(--panel); border: 1px solid var(--accent-dim);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      padding: 12px 18px; border-radius: 14px;
+      font-size: 14px; font-weight: 600; line-height: 1.3; text-align: center;
+      color: var(--text);
+      opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none;
+      z-index: 70;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .modal-overlay {
       position: fixed; inset: 0; z-index: 60;
@@ -692,11 +702,18 @@
       return res.json();
     }
 
-    function toast(msg) {
+    let toastTimer = null;
+    // opts.duration ms (default 2.8s). Longer for important confirmations like AI generate.
+    function toast(msg, opts = {}) {
       const t = document.getElementById("toast");
+      const duration = opts.duration != null ? opts.duration : 2800;
       t.textContent = msg;
       t.classList.add("show");
-      setTimeout(() => t.classList.remove("show"), 2200);
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        t.classList.remove("show");
+        toastTimer = null;
+      }, duration);
     }
 
     // Custom confirm modal (replaces the native confirm()).
@@ -1939,14 +1956,12 @@
           // Stay on the paste/list panel — don't force swipe after a long AI wait.
           openReviewPanel();
           const n = res.generated != null ? res.generated : res.added;
-          const pending = (res.review && res.review.count) || 0;
-          let msg =
+          // Short + scannable on mobile (no wrapping essay).
+          const msg =
             mode === "replace"
-              ? `Replaced deck with ${n} draft${n === 1 ? "" : "s"}`
-              : `Added ${n} draft${n === 1 ? "" : "s"} to the end of the deck`;
-          if (pending) msg += ` · ${pending} pending`;
-          if (res.overCount) msg += ` · ${res.overCount} over ${MAX_LEN}`;
-          toast(msg);
+              ? `${n} generated · deck replaced`
+              : `${n} generated · added to deck`;
+          toast(msg, { duration: 4500 });
         } else {
           toast(res.error || "Generate failed");
         }
