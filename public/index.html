@@ -1915,15 +1915,17 @@
         if (res.ok) {
           state = res;
           render();
+          // Stay on the paste/list panel — don't force swipe after a long AI wait.
           openReviewPanel();
           const n = res.generated != null ? res.generated : res.added;
-          let msg = `Generated ${n} for review`;
+          const pending = (res.review && res.review.count) || 0;
+          let msg =
+            mode === "replace"
+              ? `Replaced deck with ${n} draft${n === 1 ? "" : "s"}`
+              : `Added ${n} draft${n === 1 ? "" : "s"} to the end of the deck`;
+          if (pending) msg += ` · ${pending} pending`;
           if (res.overCount) msg += ` · ${res.overCount} over ${MAX_LEN}`;
           toast(msg);
-          if (res.review && res.review.count > 0) {
-            // Jump into swipe so you can triage immediately.
-            openSwipeMode();
-          }
         } else {
           toast(res.error || "Generate failed");
         }
