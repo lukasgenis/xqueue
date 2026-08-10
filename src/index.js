@@ -573,6 +573,8 @@ async function generateReviewDrafts(env, body) {
     "Rules:",
     `- Exactly ${count} posts.`,
     `- Each post under ${MAX_TWEET_LEN} characters (hard limit).`,
+    "- ALWAYS all lowercase. Never use capital letters (not even at the start of a sentence or for names/brands unless a URL requires it).",
+    "- NEVER use em dashes (—) or en dashes (–). Use a comma, period, or a normal hyphen (-) instead.",
     "- One idea per post. No numbering in the post body.",
     "- No hashtag spam. No 'thread 1/n'. No emojis unless samples use them often.",
     "- Do not copy samples verbatim. Do not invent fake URLs.",
@@ -715,6 +717,9 @@ function parseGeneratedPosts(text, want) {
     if (!t) continue;
     // Drop leftover labels
     if (/^(here are|posts?:|output:)/i.test(t) && t.length < 40) continue;
+    // House style: always lowercase; no em/en dashes (model may ignore prompt rules).
+    t = normalizeDraftStyle(t);
+    if (!t) continue;
     if (t.length > MAX_TWEET_LEN) t = t.slice(0, MAX_TWEET_LEN).trim();
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
@@ -723,6 +728,15 @@ function parseGeneratedPosts(text, want) {
     if (out.length >= want) break;
   }
   return out;
+}
+
+// Enforce xqueue draft house style after the model responds.
+function normalizeDraftStyle(text) {
+  return String(text || "")
+    .replace(/[\u2014\u2013]/g, "-") // em dash / en dash → hyphen
+    .replace(/\s+-\s+/g, " - ") // tidy spaced hyphens
+    .toLowerCase()
+    .trim();
 }
 
 async function seedReview(env, texts, mode) {
