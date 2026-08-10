@@ -228,8 +228,8 @@
     .review-deck-actions button { padding: 5px 12px; font-size: 13px; }
     .review-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
     .review-list .item.over { border-color: #5c2a2c; }
-    .review-list .item .char-meta { font-variant-numeric: tabular-nums; }
-    .review-list .item .char-meta.over { color: var(--danger); }
+    .item .meta .char-meta { font-variant-numeric: tabular-nums; }
+    .item .meta .char-meta.over { color: var(--danger); }
 
     /* Full-screen Review swipe mode */
     .review-swipe {
@@ -810,11 +810,14 @@
           return;
         }
 
+        const qLen = (item.text || "").length;
+        const qOver = qLen > MAX_LEN;
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
             <div class="meta">
               ${i === 0 ? '<span class="badge next">next</span>' : `<span>#${i + 1} in line</span>`}
+              <span class="char-meta${qOver ? " over" : ""}">${qLen} / ${MAX_LEN}</span>
               <span>added ${fmtWhen(item.created_at)}</span>
               <span>· ${aud(item.cost_usd)}${textHasLink(item.text) ? " (link)" : ""}</span>
             </div>
@@ -1320,7 +1323,7 @@
           <div class="body">
             <div class="txt"></div>
             <div class="meta">
-              <span>#${idx + 1}</span>
+              <span>#${idx + 1} in line</span>
               <span class="char-meta${isOver ? " over" : ""}">${n} / ${MAX_LEN}</span>
               ${isOver ? '<span class="badge failed">over limit</span>' : ""}
             </div>
