@@ -678,8 +678,10 @@
       setTimeout(() => t.classList.remove("show"), 2200);
     }
 
-    // Custom confirm modal (replaces the native confirm()). Returns a Promise<bool>.
-    // Confirm resolves true; Cancel / backdrop click / Escape resolve false.
+    // Custom confirm modal (replaces the native confirm()).
+    // Resolves: true = Confirm button, false = Cancel button, null = dismiss
+    // (backdrop click or Escape). Existing `if (!ok) return` still aborts on
+    // cancel or dismiss; three-way flows can tell cancel from dismiss.
     function confirmDialog(opts = {}) {
       return new Promise((resolve) => {
         const overlay = document.getElementById("modal");
@@ -694,7 +696,7 @@
         cancelBtn.textContent = opts.cancelLabel || "Cancel";
 
         function onKey(e) {
-          if (e.key === "Escape") close(false);
+          if (e.key === "Escape") close(null);
           if (e.key === "Enter") close(true);
         }
         function close(result) {
@@ -705,7 +707,7 @@
         }
         confirmBtn.onclick = () => close(true);
         cancelBtn.onclick = () => close(false);
-        overlay.onclick = (e) => { if (e.target === overlay) close(false); };
+        overlay.onclick = (e) => { if (e.target === overlay) close(null); };
         document.addEventListener("keydown", onKey);
 
         overlay.hidden = false;
@@ -1791,24 +1793,26 @@
       const existing = reviewItems().length;
       let mode = "replace";
       if (existing > 0) {
-        // Append is the safe default; opt into Replace with a second confirm.
-        const wantAppend = await confirmDialog({
+        // Append / Replace… / dismiss (outside or Esc aborts — does not open Replace).
+        const choice = await confirmDialog({
           title: "Deck already has " + existing + " posts",
-          body: "Append these " + posts.length + " posts to the end of the deck?\n\nChoose Cancel if you want to replace the deck instead.",
+          body: "Append these " + posts.length + " posts to the end of the deck?\n\nReplace… discards the current deck first.",
           confirmLabel: "Append",
           cancelLabel: "Replace…",
         });
-        if (wantAppend) {
+        if (choice === true) {
           mode = "append";
-        } else {
+        } else if (choice === false) {
           const doReplace = await confirmDialog({
             title: "Replace the deck?",
             body: "This discards all " + existing + " pending review posts and loads the new paste instead.",
             confirmLabel: "Replace",
             danger: true,
           });
-          if (!doReplace) return; // cancelled both → abort seed
+          if (doReplace !== true) return; // cancel or dismiss → abort
           mode = "replace";
+        } else {
+          return; // dismissed first dialog
         }
       }
       const btn = document.getElementById("reviewSeed");
@@ -1878,23 +1882,26 @@
       const existing = reviewItems().length;
       let mode = "append";
       if (existing > 0) {
-        const wantAppend = await confirmDialog({
+        // Append / Replace… / dismiss (outside or Esc aborts — does not open Replace).
+        const choice = await confirmDialog({
           title: "Deck already has " + existing + " posts",
-          body: "Append AI drafts to the end of the deck?\n\nCancel → replace the whole deck with this batch instead.",
+          body: "Append AI drafts to the end of the deck?\n\nReplace… discards the current deck first.",
           confirmLabel: "Append",
           cancelLabel: "Replace…",
         });
-        if (wantAppend) {
+        if (choice === true) {
           mode = "append";
-        } else {
+        } else if (choice === false) {
           const doReplace = await confirmDialog({
             title: "Replace the deck?",
             body: "This discards all " + existing + " pending review posts and loads the AI batch instead.",
             confirmLabel: "Replace",
             danger: true,
           });
-          if (!doReplace) return;
+          if (doReplace !== true) return; // cancel or dismiss → abort
           mode = "replace";
+        } else {
+          return; // dismissed first dialog
         }
       }
       btn.disabled = true;
