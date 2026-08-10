@@ -150,18 +150,21 @@
       .review-bar .spacer { flex-basis: 100%; height: 0; margin: 0; }
       .import-bar button,
       .review-bar button { padding: 8px 16px; font-size: 14px; }
-      /* Queued posts on mobile: stack (align-items:stretch makes children —
-         incl. the edit textarea — full width) and hide the action bar until
-         the row is tapped, then reveal it spread evenly across the full width. */
+      /* Queued + review-deck posts on mobile: stack full-width, hide action bar
+         until the row is tapped, then reveal it across the full width. */
       .item { flex-direction: column; align-items: stretch; }
       .item .body { width: 100%; } /* ensure text + edit textarea span the row */
-      .item.queued .body { cursor: pointer; }
-      .item.queued .item-actions { display: none; }
-      .item.queued.expanded .item-actions {
+      .item.queued .body,
+      .item.review-row .body { cursor: pointer; }
+      .item.queued .item-actions,
+      .item.review-row .item-actions { display: none; }
+      .item.queued.expanded .item-actions,
+      .item.review-row.expanded .item-actions {
         display: flex; width: 100%; gap: 8px;
         margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
       }
-      .item.queued.expanded .item-actions .iconbtn {
+      .item.queued.expanded .item-actions .iconbtn,
+      .item.review-row.expanded .item-actions .iconbtn {
         flex: 1; border: 1px solid var(--border); border-radius: 8px;
         padding: 10px 0; font-size: 18px;
       }
@@ -243,6 +246,7 @@
     .swipe-stage {
       flex: 1; display: flex; align-items: center; justify-content: center;
       max-width: 520px; width: 100%; margin: 0 auto; min-height: 0; position: relative;
+      cursor: default;
     }
     .swipe-card {
       width: 100%; max-height: 100%;
@@ -250,21 +254,35 @@
       padding: 22px 20px 16px; display: flex; flex-direction: column; gap: 12px;
       box-shadow: 0 16px 48px rgba(0,0,0,.35);
       transition: transform .22s ease, opacity .22s ease, border-color .15s, background .15s;
-      touch-action: pan-y;
+      /* none so horizontal swipes aren't stolen by the browser; scrolling is via the text area */
+      touch-action: none;
       overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
     }
+    .swipe-card.editing { touch-action: auto; user-select: text; -webkit-user-select: text; }
     .swipe-card.out-left { transform: translateX(-120%) rotate(-8deg); opacity: 0; }
     .swipe-card.out-right { transform: translateX(120%) rotate(8deg); opacity: 0; }
     .swipe-card.flash-ok { border-color: #1f5c3a; background: #14241c; }
     .swipe-card.flash-no { border-color: #5c2a2c; background: #241416; }
+    @keyframes cardInFromBelow {
+      from { transform: translateY(36px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .swipe-card.enter-below {
+      animation: cardInFromBelow .28s ease;
+    }
     .swipe-card .card-text {
       flex: 1; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
       font-size: 18px; line-height: 1.45; min-height: 120px;
+      cursor: pointer; -webkit-overflow-scrolling: touch;
+      touch-action: pan-y; /* allow reading long posts by scrolling text */
     }
     .swipe-card .card-edit {
       flex: 1; width: 100%; min-height: 140px; resize: vertical;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
       color: var(--text); font: inherit; font-size: 17px; padding: 12px; outline: none;
+      touch-action: auto;
     }
     .swipe-card .card-edit:focus { border-color: var(--accent-dim); }
     .swipe-card .card-meta {
@@ -273,19 +291,20 @@
     }
     .swipe-card .card-meta .count.over { color: var(--danger); font-weight: 600; }
     .swipe-card .card-meta .warn { color: var(--danger); font-size: 12px; }
+    .swipe-card .edit-bar { margin-top: 0; }
+    .swipe-card .edit-bar .count.over { color: var(--danger); }
     .swipe-actions {
-      display: flex; align-items: center; justify-content: center; gap: 12px;
+      display: flex; align-items: center; justify-content: center; gap: 18px;
       max-width: 520px; width: 100%; margin: 18px auto 0; flex-wrap: wrap;
     }
     .swipe-actions button {
-      min-width: 56px; min-height: 56px; border-radius: 999px; font-size: 20px; padding: 12px 16px;
+      min-width: 64px; min-height: 64px; border-radius: 999px; font-size: 22px; padding: 12px 18px;
     }
     .swipe-actions .rej { border-color: #5c2a2c; color: var(--danger); }
     .swipe-actions .rej:hover:not(:disabled) { background: #2a1416; border-color: var(--danger); }
     .swipe-actions .acc { background: var(--ok); border-color: var(--ok); color: #0e1113; font-weight: 700; }
     .swipe-actions .acc:hover:not(:disabled) { filter: brightness(1.08); }
     .swipe-actions .acc:disabled { opacity: .35; }
-    .swipe-actions .mid { font-size: 15px; min-width: 48px; min-height: 48px; padding: 10px 14px; }
     .swipe-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
     .swipe-empty {
       text-align: center; color: var(--muted); padding: 40px 16px;
@@ -482,9 +501,14 @@
       <div class="swipe-card" id="swipeCard" hidden>
         <div class="card-text" id="swipeText"></div>
         <textarea class="card-edit" id="swipeEdit" hidden></textarea>
-        <div class="card-meta">
+        <div class="edit-bar" id="swipeEditBar" hidden>
+          <span class="count" id="swipeEditCount">0 / 280</span>
+          <span class="spacer"></span>
+          <button type="button" id="swipeEditCancel">Cancel</button>
+          <button type="button" class="primary" id="swipeEditSave">Save</button>
+        </div>
+        <div class="card-meta" id="swipeMeta">
           <span class="count" id="swipeCount">0 / 280</span>
-          <span class="cost" id="swipeCost"></span>
           <span class="warn" id="swipeWarn" hidden>Over 280 — edit or reject</span>
         </div>
       </div>
@@ -496,10 +520,9 @@
     </div>
     <div class="swipe-actions" id="swipeActions">
       <button class="rej" id="swipeReject" title="Reject (←)">✕</button>
-      <button class="mid" id="swipeEditBtn" title="Edit (E)">✎</button>
       <button class="acc" id="swipeAccept" title="Accept → queue (→)">✓</button>
     </div>
-    <p class="swipe-hint" id="swipeHint">← reject · → accept · E edit · Z undo</p>
+    <p class="swipe-hint" id="swipeHint">← reject · → accept</p>
   </div>
 
     <div class="tabs">
@@ -535,10 +558,12 @@
     let historyExtra = []; // older history rows loaded past the first page (Load more)
     let activeTab = "queue"; // which list tab is showing: "queue" | "history"
     let reviewEditingId = null; // deck-list row being edited
+    let reviewExpandedId = null; // deck-list row with actions revealed (mobile)
     let swipeMode = false; // full-screen card review open
     let swipeEditing = false; // editing the front card
     let swipeBusy = false; // block double-tap during animation/request
     let swipeSession = { accepted: 0, rejected: 0 }; // client-side counters for this open
+    let swipeEnterBelow = false; // next card should animate in from below
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
@@ -1230,7 +1255,7 @@
         const el = document.createElement("div");
         const n = (item.text || "").length;
         const isOver = n > MAX_LEN;
-        el.className = "item" + (isOver ? " over" : "");
+        el.className = "item review-row" + (isOver ? " over" : "") + (item.id === reviewExpandedId ? " expanded" : "");
 
         if (reviewEditingId === item.id) {
           const ta = document.createElement("textarea");
@@ -1263,6 +1288,7 @@
               });
               if (res.ok) {
                 reviewEditingId = null;
+                reviewExpandedId = null;
                 state = res;
                 render();
                 toast("Updated");
@@ -1292,13 +1318,21 @@
             </div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
+        // Mobile: tap body to reveal/hide edit + delete (same pattern as queue).
+        if (isTouch) {
+          el.querySelector(".body").addEventListener("click", (e) => {
+            if (e.target.closest("button") || e.target.closest("a")) return;
+            reviewExpandedId = reviewExpandedId === item.id ? null : item.id;
+            renderReviewDeckList();
+          });
+        }
         const controls = document.createElement("div");
         controls.className = "item-actions";
         const edit = document.createElement("button");
         edit.className = "iconbtn";
         edit.textContent = "✎";
         edit.title = "Edit";
-        edit.onclick = () => { reviewEditingId = item.id; renderReviewDeckList(); };
+        edit.onclick = () => { reviewEditingId = item.id; reviewExpandedId = null; renderReviewDeckList(); };
         const del = document.createElement("button");
         del.className = "iconbtn del";
         del.textContent = "×";
@@ -1314,6 +1348,7 @@
           if (!ok) return;
           try {
             state = await api("/api/review/" + item.id, { method: "DELETE" });
+            reviewExpandedId = null;
             render();
             toast("Removed");
           } catch (e) { /* api() */ }
@@ -1328,15 +1363,21 @@
       swipeMode = true;
       swipeEditing = false;
       swipeBusy = false;
+      swipeEnterBelow = false;
       swipeSession = { accepted: 0, rejected: 0 };
       document.getElementById("reviewSwipe").hidden = false;
       document.body.style.overflow = "hidden";
       renderSwipeCard();
     }
-    function closeSwipeMode() {
+    async function closeSwipeMode() {
+      // Persist any in-progress card edit before leaving (same as tap-outside).
+      if (swipeEditing && !swipeBusy) {
+        await saveSwipeEdit();
+      }
       swipeMode = false;
       swipeEditing = false;
       swipeBusy = false;
+      swipeEnterBelow = false;
       document.getElementById("reviewSwipe").hidden = true;
       document.body.style.overflow = "";
       // Keep review panel open if deck remains, so user can manage list.
@@ -1358,19 +1399,30 @@
       const raw = swipeTextValue();
       const n = raw.length;
       const trimmed = raw.trim();
+      const overLimit = n > MAX_LEN;
+      const empty = trimmed.length === 0;
       const cnt = document.getElementById("swipeCount");
+      const editCnt = document.getElementById("swipeEditCount");
       cnt.textContent = `${n} / ${MAX_LEN}`;
-      cnt.classList.toggle("over", n > MAX_LEN);
-      const over = n > MAX_LEN || trimmed.length === 0;
-      document.getElementById("swipeWarn").hidden = !(n > MAX_LEN);
-      document.getElementById("swipeAccept").disabled = over || swipeBusy;
-      const link = n > 0 && textHasLink(raw);
-      const costEl = document.getElementById("swipeCost");
-      costEl.textContent = n === 0 ? "" : "· " + aud(link ? 0.2 : 0.015) + (link ? " · link" : "");
-      costEl.classList.toggle("link", link);
+      cnt.classList.toggle("over", overLimit);
+      editCnt.textContent = `${n} / ${MAX_LEN}`;
+      editCnt.classList.toggle("over", overLimit);
+      document.getElementById("swipeWarn").hidden = !overLimit || swipeEditing;
+      document.getElementById("swipeAccept").disabled = empty || overLimit || swipeBusy || swipeEditing;
       document.getElementById("swipeUndo").disabled = !(state && state.review && state.review.canUndo) || swipeBusy;
-      document.getElementById("swipeReject").disabled = swipeBusy;
-      document.getElementById("swipeEditBtn").disabled = swipeBusy;
+      document.getElementById("swipeReject").disabled = swipeBusy || swipeEditing;
+      const saveBtn = document.getElementById("swipeEditSave");
+      if (saveBtn) saveBtn.disabled = empty;
+    }
+
+    function resetSwipeCardInstant() {
+      const card = document.getElementById("swipeCard");
+      card.style.transition = "none";
+      card.classList.remove("out-left", "out-right", "flash-ok", "flash-no", "enter-below", "editing");
+      card.style.transform = "";
+      card.style.opacity = "";
+      void card.offsetWidth; // flush
+      card.style.transition = "";
     }
 
     function renderSwipeCard() {
@@ -1398,36 +1450,50 @@
       actions.hidden = false;
       hint.hidden = false;
       card.hidden = false;
-      card.classList.remove("out-left", "out-right", "flash-ok", "flash-no");
-      card.style.transform = "";
-      card.style.opacity = "";
+
+      // Avoid sliding the next card in from the exit side: hard-reset transforms first.
+      const doEnter = swipeEnterBelow;
+      swipeEnterBelow = false;
+      resetSwipeCardInstant();
 
       const textEl = document.getElementById("swipeText");
       const editEl = document.getElementById("swipeEdit");
+      const editBar = document.getElementById("swipeEditBar");
+      const meta = document.getElementById("swipeMeta");
       if (swipeEditing) {
+        card.classList.add("editing");
         textEl.hidden = true;
         editEl.hidden = false;
+        editBar.hidden = false;
+        meta.hidden = true;
         if (document.activeElement !== editEl) {
           editEl.value = item.text;
           autoGrow(editEl);
         }
-        document.getElementById("swipeEditBtn").textContent = "✎";
-        document.getElementById("swipeEditBtn").title = "Editing…";
       } else {
+        card.classList.remove("editing");
         textEl.hidden = false;
         editEl.hidden = true;
+        editBar.hidden = true;
+        meta.hidden = false;
         textEl.textContent = item.text;
-        document.getElementById("swipeEditBtn").textContent = "✎";
-        document.getElementById("swipeEditBtn").title = "Edit (E)";
       }
       updateSwipeMeta();
+
+      if (doEnter && !swipeEditing) {
+        card.classList.add("enter-below");
+        const clear = () => card.classList.remove("enter-below");
+        card.addEventListener("animationend", clear, { once: true });
+        // Fallback if animationend doesn't fire
+        setTimeout(clear, 320);
+      }
     }
 
     function animateCard(dir) {
       return new Promise((resolve) => {
         const card = document.getElementById("swipeCard");
+        card.style.transition = "";
         card.classList.add(dir === "left" ? "flash-no" : "flash-ok");
-        // Force reflow then slide out.
         void card.offsetWidth;
         card.classList.add(dir === "left" ? "out-left" : "out-right");
         setTimeout(resolve, 220);
@@ -1435,7 +1501,7 @@
     }
 
     async function swipeAccept() {
-      if (swipeBusy) return;
+      if (swipeBusy || swipeEditing) return;
       const item = currentSwipeItem();
       if (!item) return;
       const text = swipeTextValue().trim();
@@ -1455,8 +1521,8 @@
           swipeEditing = false;
           swipeSession.accepted++;
           state = res;
+          swipeEnterBelow = true;
           renderSwipeCard();
-          // Keep main state in sync without leaving swipe.
           updateReviewChrome();
         } else {
           toast(res.error || "Couldn't queue");
@@ -1469,10 +1535,9 @@
     }
 
     async function swipeReject() {
-      if (swipeBusy) return;
+      if (swipeBusy || swipeEditing) return;
       const item = currentSwipeItem();
       if (!item) return;
-      // If editing, reject discards the card (not just the edit).
       swipeBusy = true;
       updateSwipeMeta();
       try {
@@ -1482,6 +1547,7 @@
           swipeEditing = false;
           swipeSession.rejected++;
           state = res;
+          swipeEnterBelow = true;
           renderSwipeCard();
           updateReviewChrome();
         } else {
@@ -1502,16 +1568,15 @@
       try {
         const res = await api("/api/review/undo", { method: "POST" });
         if (res.ok) {
-          // Best-effort session counter adjust (we don't know which way).
           swipeEditing = false;
           state = res;
+          swipeEnterBelow = true;
           renderSwipeCard();
           updateReviewChrome();
           toast("Undone");
         } else {
           toast(res.error || "Can't undo");
           if (state) {
-            // Clear stale canUndo if server says no.
             state = await api("/api/state");
             renderSwipeCard();
           }
@@ -1523,19 +1588,50 @@
       }
     }
 
-    function toggleSwipeEdit() {
-      if (swipeBusy || !currentSwipeItem()) return;
-      if (swipeEditing) {
-        // Leaving edit keeps the draft on the textarea until accept/reject;
-        // snap back to saved item text if they cancel by toggling off without accept.
-        swipeEditing = false;
-        renderSwipeCard();
-      } else {
-        swipeEditing = true;
-        renderSwipeCard();
-        const editEl = document.getElementById("swipeEdit");
-        editEl.focus();
-        autoGrow(editEl);
+    function enterSwipeEdit() {
+      if (swipeBusy || swipeEditing || !currentSwipeItem()) return;
+      swipeEditing = true;
+      renderSwipeCard();
+      const editEl = document.getElementById("swipeEdit");
+      editEl.focus();
+      autoGrow(editEl);
+    }
+
+    function cancelSwipeEdit() {
+      if (!swipeEditing) return;
+      swipeEditing = false;
+      renderSwipeCard();
+    }
+
+    async function saveSwipeEdit() {
+      if (!swipeEditing || swipeBusy) return;
+      const item = currentSwipeItem();
+      if (!item) return;
+      const text = document.getElementById("swipeEdit").value.trim();
+      if (!text) {
+        toast("Empty post");
+        return;
+      }
+      swipeBusy = true;
+      updateSwipeMeta();
+      try {
+        const res = await api("/api/review/" + item.id, {
+          method: "PATCH",
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) {
+          swipeEditing = false;
+          state = res;
+          renderSwipeCard();
+          updateReviewChrome();
+          toast("Saved");
+        } else {
+          toast(res.error || "Failed to save");
+        }
+      } catch (e) { /* api() */ }
+      finally {
+        swipeBusy = false;
+        updateSwipeMeta();
       }
     }
 
@@ -1651,81 +1747,167 @@
     document.getElementById("swipeAccept").addEventListener("click", () => swipeAccept());
     document.getElementById("swipeReject").addEventListener("click", () => swipeReject());
     document.getElementById("swipeUndo").addEventListener("click", () => swipeUndo());
-    document.getElementById("swipeEditBtn").addEventListener("click", () => toggleSwipeEdit());
+    document.getElementById("swipeEditCancel").addEventListener("click", (e) => {
+      e.stopPropagation();
+      cancelSwipeEdit();
+    });
+    document.getElementById("swipeEditSave").addEventListener("click", (e) => {
+      e.stopPropagation();
+      saveSwipeEdit();
+    });
     document.getElementById("swipeEdit").addEventListener("input", () => {
       autoGrow(document.getElementById("swipeEdit"));
       updateSwipeMeta();
     });
+    // Tap card text → enter edit mode
+    document.getElementById("swipeText").addEventListener("click", (e) => {
+      if (swipeBusy || swipeEditing) return;
+      // Ignore if this was the end of a horizontal swipe (handled by pointer code)
+      if (swipePointer.didSwipe) return;
+      e.stopPropagation();
+      enterSwipeEdit();
+    });
+    // Tap outside the card (stage / chrome) while editing → save
+    document.getElementById("reviewSwipe").addEventListener("click", (e) => {
+      if (!swipeMode || !swipeEditing) return;
+      const card = document.getElementById("swipeCard");
+      if (card.contains(e.target)) return;
+      // Don't steal clicks on accept/reject/undo/done while not intended... actually
+      // accept/reject are disabled during edit. Undo/Done still work.
+      if (e.target.closest("button")) return;
+      saveSwipeEdit();
+    });
 
-    // Keyboard while swipe mode is open (skip when typing in the edit box except Esc).
+    // Keyboard while swipe mode is open.
     document.addEventListener("keydown", (e) => {
       if (!swipeMode) return;
       const inEdit = document.activeElement === document.getElementById("swipeEdit");
       if (e.key === "Escape") {
         e.preventDefault();
-        if (inEdit && swipeEditing) {
-          swipeEditing = false;
-          renderSwipeCard();
-        } else {
-          closeSwipeMode();
+        if (swipeEditing) cancelSwipeEdit();
+        else closeSwipeMode();
+        return;
+      }
+      if (swipeEditing) {
+        // Enter (no shift) saves on desktop, matching queue edit.
+        if (!isTouch && e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          saveSwipeEdit();
         }
         return;
       }
-      if (inEdit) return; // let typing work; accept/reject via buttons
-      if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "e" || e.key === "E" || e.key === "z" || e.key === "Z") {
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "z" || e.key === "Z") {
         e.preventDefault();
       }
       if (e.key === "ArrowRight") swipeAccept();
       else if (e.key === "ArrowLeft") swipeReject();
-      else if (e.key === "e" || e.key === "E") toggleSwipeEdit();
       else if (e.key === "z" || e.key === "Z") swipeUndo();
     });
 
-    // Touch swipe on the card.
-    (function setupTouchSwipe() {
+    // Pointer/touch swipe on the card. Prefer PointerEvent; fall back to touch*
+    // so we never double-handle on devices that fire both.
+    const swipePointer = {
+      active: false, id: null, startX: 0, startY: 0, lastY: 0,
+      dx: 0, dy: 0, axis: null, didSwipe: false, scrollEl: null,
+    };
+    (function setupCardSwipe() {
       const card = document.getElementById("swipeCard");
-      let startX = 0, startY = 0, dragging = false, dx = 0;
-      card.addEventListener("touchstart", (e) => {
+      const THRESH = 64;
+      const AXIS_LOCK = 10;
+
+      function point(e) {
+        if (e.touches && e.touches[0]) return e.touches[0];
+        if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0];
+        return e;
+      }
+
+      function onStart(e) {
         if (swipeBusy || swipeEditing || !currentSwipeItem()) return;
-        const t = e.changedTouches[0];
-        startX = t.clientX; startY = t.clientY; dragging = true; dx = 0;
+        if (e.target.closest("button") || e.target.closest("textarea")) return;
+        const p = point(e);
+        swipePointer.active = true;
+        swipePointer.id = e.pointerId != null ? e.pointerId : null;
+        swipePointer.startX = p.clientX;
+        swipePointer.startY = p.clientY;
+        swipePointer.lastY = p.clientY;
+        swipePointer.dx = 0;
+        swipePointer.dy = 0;
+        swipePointer.axis = null;
+        swipePointer.didSwipe = false;
+        swipePointer.scrollEl = e.target.closest(".card-text");
         card.style.transition = "none";
-      }, { passive: true });
-      card.addEventListener("touchmove", (e) => {
-        if (!dragging) return;
-        const t = e.changedTouches[0];
-        dx = t.clientX - startX;
-        const dy = t.clientY - startY;
-        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 24) {
-          // vertical scroll intent — cancel horizontal drag
-          dragging = false;
-          card.style.transform = "";
-          card.style.transition = "";
-          return;
+        if (e.pointerId != null && card.setPointerCapture) {
+          try { card.setPointerCapture(e.pointerId); } catch (_) {}
         }
-        const rot = dx / 40;
-        card.style.transform = `translateX(${dx}px) rotate(${rot}deg)`;
-        card.style.opacity = String(Math.max(0.4, 1 - Math.abs(dx) / 400));
-      }, { passive: true });
-      card.addEventListener("touchend", () => {
-        if (!dragging) return;
-        dragging = false;
+      }
+
+      function onMove(e) {
+        if (!swipePointer.active) return;
+        if (swipePointer.id != null && e.pointerId != null && e.pointerId !== swipePointer.id) return;
+        const p = point(e);
+        swipePointer.dx = p.clientX - swipePointer.startX;
+        swipePointer.dy = p.clientY - swipePointer.startY;
+        const adx = Math.abs(swipePointer.dx);
+        const ady = Math.abs(swipePointer.dy);
+        if (!swipePointer.axis && (adx > AXIS_LOCK || ady > AXIS_LOCK)) {
+          swipePointer.axis = adx >= ady ? "x" : "y";
+        }
+        if (swipePointer.axis === "x") {
+          if (e.cancelable) e.preventDefault();
+          const rot = swipePointer.dx / 40;
+          card.style.transform = `translateX(${swipePointer.dx}px) rotate(${rot}deg)`;
+          card.style.opacity = String(Math.max(0.35, 1 - adx / 420));
+          card.classList.toggle("flash-ok", swipePointer.dx > THRESH);
+          card.classList.toggle("flash-no", swipePointer.dx < -THRESH);
+        } else if (swipePointer.axis === "y" && swipePointer.scrollEl) {
+          // Manual vertical scroll of long post text (card uses touch-action: none).
+          if (e.cancelable) e.preventDefault();
+          const dy = p.clientY - swipePointer.lastY;
+          swipePointer.scrollEl.scrollTop -= dy;
+          swipePointer.lastY = p.clientY;
+        }
+      }
+
+      function onEnd(e) {
+        if (!swipePointer.active) return;
+        if (swipePointer.id != null && e.pointerId != null && e.pointerId !== swipePointer.id) return;
+        swipePointer.active = false;
         card.style.transition = "";
-        const threshold = 80;
-        if (dx > threshold) {
-          card.style.transform = "";
-          card.style.opacity = "";
-          swipeAccept();
-        } else if (dx < -threshold) {
-          card.style.transform = "";
-          card.style.opacity = "";
-          swipeReject();
+        card.classList.remove("flash-ok", "flash-no");
+        const dx = swipePointer.dx;
+        const dy = swipePointer.dy;
+        const adx = Math.abs(dx);
+        const ady = Math.abs(dy);
+        card.style.transform = "";
+        card.style.opacity = "";
+
+        if (swipePointer.axis === "x" && adx >= THRESH) {
+          swipePointer.didSwipe = true;
+          if (dx > 0) swipeAccept();
+          else swipeReject();
+          setTimeout(() => { swipePointer.didSwipe = false; }, 80);
+        } else if (adx < 12 && ady < 12) {
+          // Tap anywhere on the card (not a control) → edit.
+          swipePointer.didSwipe = false;
+          if (e.target && e.target.closest && !e.target.closest("button") && !e.target.closest("textarea")) {
+            enterSwipeEdit();
+          }
         } else {
-          card.style.transform = "";
-          card.style.opacity = "";
+          swipePointer.didSwipe = false;
         }
-        dx = 0;
-      });
+      }
+
+      if (window.PointerEvent) {
+        card.addEventListener("pointerdown", onStart);
+        card.addEventListener("pointermove", onMove);
+        card.addEventListener("pointerup", onEnd);
+        card.addEventListener("pointercancel", onEnd);
+      } else {
+        card.addEventListener("touchstart", onStart, { passive: true });
+        card.addEventListener("touchmove", onMove, { passive: false });
+        card.addEventListener("touchend", onEnd);
+        card.addEventListener("touchcancel", onEnd);
+      }
     })();
 
     // ---- Login / lock ----
