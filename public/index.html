@@ -1679,27 +1679,35 @@
         toast("Empty post");
         return;
       }
-      swipeBusy = true;
-      updateSwipeMeta();
+      // Leave edit mode immediately (optimistic) so tap-away doesn't wait on the network.
+      const id = item.id;
+      const editEl = document.getElementById("swipeEdit");
+      editEl.blur();
+      swipeEditing = false;
+      if (state && state.review && Array.isArray(state.review.items)) {
+        const row = state.review.items.find((it) => it.id === id);
+        if (row) row.text = text;
+      }
+      renderSwipeCard();
+      updateReviewChrome();
+
       try {
-        const res = await api("/api/review/" + item.id, {
+        const res = await api("/api/review/" + id, {
           method: "PATCH",
           body: JSON.stringify({ text }),
         });
         if (res.ok) {
-          swipeEditing = false;
           state = res;
-          renderSwipeCard();
-          updateReviewChrome();
-          toast("Saved");
+          // Refresh chrome only — don't re-render the card if the user already moved on.
+          if (swipeMode) updateReviewChrome();
         } else {
           toast(res.error || "Failed to save");
+          try {
+            state = await api("/api/state");
+            if (swipeMode) renderSwipeCard();
+          } catch (_) { /* ignore */ }
         }
       } catch (e) { /* api() */ }
-      finally {
-        swipeBusy = false;
-        updateSwipeMeta();
-      }
     }
 
     async function seedReviewDeck() {
