@@ -59,6 +59,10 @@ assets** (NOT Pages) + **D1** + an hourly **cron**. Live at
   manual migration; `schema.sql` still has the canonical DDL. Accept inserts into
   `queue` immediately; reject deletes; over-280 may sit in the deck but accept
   is rejected server-side. Don't drop the 280 cap without a product decision.
+- **Workers AI**: `[ai] binding = "AI"` in wrangler.toml. Generate path is
+  `POST /api/review/generate` → `@cf/mistralai/mistral-small-3.1-24b-instruct`
+  using recent posted/queued/pending samples, then `seedReview`. Free Neurons
+  are daily on the CF account; no API key secret for Workers AI.
 
 ## Verifying changes
 

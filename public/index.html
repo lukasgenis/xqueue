@@ -216,6 +216,29 @@
       color: var(--text); font: inherit; padding: 8px; outline: none;
     }
     .review-panel textarea:focus { border-color: var(--accent-dim); }
+    .review-ai {
+      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .review-ai-label {
+      font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+    }
+    .review-ai-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .review-ai-row input[type="number"] {
+      width: 4.2em; padding: 6px 8px; border-radius: 8px;
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+      font: inherit;
+    }
+    .review-ai-row input[type="text"] {
+      flex: 1; min-width: 140px; padding: 6px 10px; border-radius: 8px;
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+      font: inherit;
+    }
+    .review-ai-row input:focus { outline: none; border-color: var(--accent-dim); }
+    .review-ai-row button { padding: 6px 14px; font-size: 14px; white-space: nowrap; }
+    .review-ai-hint { font-size: 12px; color: var(--muted); line-height: 1.4; }
     .review-deck-head {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       margin: 16px 2px 8px; flex-wrap: wrap;
@@ -489,6 +512,15 @@
         <span class="count" id="reviewSeedCount">0 posts</span>
         <button id="reviewCancel">Cancel</button>
         <button class="primary" id="reviewSeed" disabled>Add to review</button>
+      </div>
+      <div class="review-ai" id="reviewAi">
+        <span class="review-ai-label">Generate with AI</span>
+        <div class="review-ai-row">
+          <input type="number" id="reviewAiCount" min="1" max="25" value="10" title="How many posts" aria-label="How many posts" />
+          <input type="text" id="reviewAiTopic" placeholder="Optional theme (e.g. market takes, dry humor)" maxlength="400" autocomplete="off" />
+          <button type="button" class="primary" id="reviewAiGen">✦ Generate</button>
+        </div>
+        <p class="review-ai-hint">Uses Mistral Small on Workers AI + your history/queue as voice samples. Drafts land in the review deck (append). Free tier: ~10k Neurons/day.</p>
       </div>
       <div id="reviewDeckSection" hidden>
         <div class="review-deck-head">
@@ -1826,6 +1858,7 @@
       updateReviewSeedCount();
     });
     document.getElementById("reviewSeed").addEventListener("click", () => seedReviewDeck());
+    document.getElementById("reviewAiGen").addEventListener("click", () => generateAiReview());
     document.getElementById("reviewContinue").addEventListener("click", () => {
       if (!reviewItems().length) {
         toast("Deck is empty — paste posts above");
@@ -1833,6 +1866,67 @@
       }
       openSwipeMode();
     });
+
+    async function generateAiReview() {
+      const btn = document.getElementById("reviewAiGen");
+      if (btn.disabled) return;
+      let count = Number(document.getElementById("reviewAiCount").value);
+      if (!Number.isFinite(count)) count = 10;
+      count = Math.max(1, Math.min(25, Math.round(count)));
+      document.getElementById("reviewAiCount").value = String(count);
+      const topic = document.getElementById("reviewAiTopic").value.trim();
+      const existing = reviewItems().length;
+      let mode = "append";
+      if (existing > 0) {
+        const wantAppend = await confirmDialog({
+          title: "Deck already has " + existing + " posts",
+          body: "Append AI drafts to the end of the deck?\n\nCancel → replace the whole deck with this batch instead.",
+          confirmLabel: "Append",
+          cancelLabel: "Replace…",
+        });
+        if (wantAppend) {
+          mode = "append";
+        } else {
+          const doReplace = await confirmDialog({
+            title: "Replace the deck?",
+            body: "This discards all " + existing + " pending review posts and loads the AI batch instead.",
+            confirmLabel: "Replace",
+            danger: true,
+          });
+          if (!doReplace) return;
+          mode = "replace";
+        }
+      }
+      btn.disabled = true;
+      const prevLabel = btn.textContent;
+      btn.textContent = "Generating…";
+      try {
+        const res = await api("/api/review/generate", {
+          method: "POST",
+          body: JSON.stringify({ count, mode, topic: topic || undefined }),
+        });
+        if (res.ok) {
+          state = res;
+          render();
+          openReviewPanel();
+          const n = res.generated != null ? res.generated : res.added;
+          let msg = `Generated ${n} for review`;
+          if (res.overCount) msg += ` · ${res.overCount} over ${MAX_LEN}`;
+          toast(msg);
+          if (res.review && res.review.count > 0) {
+            // Jump into swipe so you can triage immediately.
+            openSwipeMode();
+          }
+        } else {
+          toast(res.error || "Generate failed");
+        }
+      } catch (e) {
+        toast("Generate failed");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prevLabel;
+      }
+    }
     document.getElementById("reviewEmpty").addEventListener("click", async () => {
       const n = reviewItems().length;
       if (!n) return;

@@ -17,6 +17,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_CAP = 17; // X Free tier: 17 POST /2/tweets per 24h (per user & per app)
 const MAX_ATTEMPTS = 3; // give up on a post after this many failures
 const MAX_TWEET_LEN = 280;
+// Workers AI model for drafting posts into the Review deck.
+const AI_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
+const AI_GEN_MIN = 1;
+const AI_GEN_MAX = 25;
+const AI_GEN_DEFAULT = 10;
 
 // X pay-per-use pricing (USD). A post with a link costs ~13x a plain one.
 const COST_TEXT_USD = 0.015;
@@ -184,6 +189,13 @@ async function handleApi(request, env, ctx, url) {
     if (pathname === "/api/review" && method === "POST") {
       const body = await request.json();
       return await seedReview(env, Array.isArray(body.texts) ? body.texts : [], body.mode === "append" ? "append" : "replace");
+    }
+
+    // AI draft → Review deck. Body: { count?, mode?: "append"|"replace", topic? }.
+    // Uses Workers AI (Mistral Small) + recent history/queue as voice samples.
+    if (pathname === "/api/review/generate" && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await generateReviewDrafts(env, body || {});
     }
 
     // Empty the whole deck (+ clear undo).
@@ -513,6 +525,204 @@ async function getReviewState(env) {
     // Tables not created yet — treat as empty deck.
     return { items: [], count: 0, overCount: 0, canUndo: false };
   }
+}
+
+// Draft N posts with Workers AI, using recent posted + queued text as voice samples.
+// Lands in the Review deck (append by default) so you can swipe/edit before queueing.
+async function generateReviewDrafts(env, body) {
+  if (!env.AI) {
+    return json(
+      { ok: false, error: "Workers AI is not bound. Redeploy with [ai] binding = \"AI\" in wrangler.toml." },
+      500
+    );
+  }
+
+  let count = Number(body.count);
+  if (!Number.isFinite(count)) count = AI_GEN_DEFAULT;
+  count = Math.max(AI_GEN_MIN, Math.min(AI_GEN_MAX, Math.round(count)));
+  const mode = body.mode === "replace" ? "replace" : "append";
+  const topic = String(body.topic || "").trim().slice(0, 400);
+
+  const posted = (
+    await env.DB.prepare(
+      "SELECT text FROM queue WHERE status = 'posted' ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 40"
+    ).all()
+  ).results;
+  const queued = (
+    await env.DB.prepare(
+      "SELECT text FROM queue WHERE status = 'queued' ORDER BY created_at DESC LIMIT 25"
+    ).all()
+  ).results;
+  const pending = (
+    await env.DB.prepare(
+      "SELECT text FROM review_items ORDER BY position ASC LIMIT 20"
+    ).all()
+  ).results;
+
+  const fmtBlock = (rows, label) => {
+    if (!rows || !rows.length) return `(no ${label} yet)`;
+    return rows
+      .map((r, i) => `${i + 1}. ${String(r.text || "").trim()}`)
+      .filter((line) => line.length > 3)
+      .join("\n");
+  };
+
+  const system = [
+    "You write original X/Twitter posts for a single private account.",
+    "Match the author's voice, tone, humor, length, and topics from the samples.",
+    "Rules:",
+    `- Exactly ${count} posts.`,
+    `- Each post under ${MAX_TWEET_LEN} characters (hard limit).`,
+    "- One idea per post. No numbering in the post body.",
+    "- No hashtag spam. No 'thread 1/n'. No emojis unless samples use them often.",
+    "- Do not copy samples verbatim. Do not invent fake URLs.",
+    "- Avoid links unless samples clearly use them (links cost more to post).",
+    "- Output ONLY the posts, separated by a blank line. No intro, no bullets, no quotes around posts.",
+  ].join("\n");
+
+  const userParts = [
+    "=== Recent posted (newest first) ===",
+    fmtBlock(posted, "posted history"),
+    "",
+    "=== Currently queued (not yet posted) ===",
+    fmtBlock(queued, "queued posts"),
+    "",
+    "=== Already in review deck (avoid near-duplicates) ===",
+    fmtBlock(pending, "review drafts"),
+    "",
+    topic
+      ? `Theme / direction for this batch: ${topic}`
+      : "Theme: continue in the same vein as the samples — fresh angles, same personality.",
+    "",
+    `Write exactly ${count} new posts now.`,
+  ];
+
+  let raw;
+  try {
+    raw = await env.AI.run(AI_MODEL, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userParts.join("\n") },
+      ],
+      max_tokens: Math.min(4096, 80 + count * 140),
+      temperature: 0.85,
+    });
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    // Common free-tier / binding failures
+    if (/neuron|quota|limit|429/i.test(msg)) {
+      return json(
+        { ok: false, error: "AI quota hit (Neurons). Try again tomorrow or upgrade Workers Paid." },
+        429
+      );
+    }
+    return json({ ok: false, error: "AI request failed: " + msg }, 502);
+  }
+
+  const text = extractAiText(raw);
+  if (!text.trim()) {
+    return json({ ok: false, error: "AI returned empty text. Try again." }, 502);
+  }
+
+  const posts = parseGeneratedPosts(text, count);
+  if (!posts.length) {
+    return json(
+      { ok: false, error: "Couldn't parse posts from AI output. Try again or lower the count." },
+      502
+    );
+  }
+
+  // Reuse seed path; surface generated list for debugging/toasts.
+  const seeded = await seedReview(env, posts, mode);
+  // seedReview returns a Response — re-wrap with generate metadata.
+  const data = await seeded.json();
+  return json({
+    ...data,
+    generated: posts.length,
+    model: AI_MODEL,
+    topic: topic || null,
+  });
+}
+
+function extractAiText(result) {
+  if (result == null) return "";
+  if (typeof result === "string") return result;
+  if (typeof result.response === "string") return result.response;
+  if (typeof result.text === "string") return result.text;
+  if (result.result != null) {
+    if (typeof result.result === "string") return result.result;
+    if (typeof result.result.response === "string") return result.result.response;
+  }
+  // Some runtimes return message content arrays
+  if (result.message && typeof result.message.content === "string") {
+    return result.message.content;
+  }
+  try {
+    return JSON.stringify(result);
+  } catch (_) {
+    return "";
+  }
+}
+
+// Pull discrete posts out of model output (JSON array, blank-line blocks, or numbered list).
+function parseGeneratedPosts(text, want) {
+  text = String(text || "").trim();
+  // Strip common markdown fences
+  text = text.replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  let candidates = [];
+
+  // JSON array of strings
+  if (text.startsWith("[")) {
+    try {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr)) {
+        candidates = arr.map((x) => (typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)));
+      }
+    } catch (_) { /* fall through */ }
+  }
+
+  if (!candidates.length) {
+    // Blank-line separated blocks (preferred prompt format)
+    const blocks = text.split(/\r?\n\s*\r?\n/).map((b) => b.trim()).filter(Boolean);
+    if (blocks.length >= 2) {
+      candidates = blocks.map((b) =>
+        b
+          .replace(/^\s*[-*•]\s+/gm, "")
+          .replace(/^\s*\d+[.)]\s+/gm, "")
+          .replace(/^["']|["']$/g, "")
+          .trim()
+      );
+    } else {
+      // One-per-line fallback
+      candidates = text
+        .split(/\r?\n/)
+        .map((l) =>
+          l
+            .replace(/^\s*[-*•]\s+/, "")
+            .replace(/^\s*\d+[.)]\s+/, "")
+            .replace(/^["']|["']$/g, "")
+            .trim()
+        )
+        .filter(Boolean);
+    }
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (let t of candidates) {
+    t = String(t || "").trim();
+    if (!t) continue;
+    // Drop leftover labels
+    if (/^(here are|posts?:|output:)/i.test(t) && t.length < 40) continue;
+    if (t.length > MAX_TWEET_LEN) t = t.slice(0, MAX_TWEET_LEN).trim();
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= want) break;
+  }
+  return out;
 }
 
 async function seedReview(env, texts, mode) {

@@ -26,6 +26,11 @@ database_name = "xqueue"
 # Fill this in after `wrangler d1 create xqueue` (it prints the id).
 database_id = "8dcec775-ab8c-444b-91fc-88688952e411"
 
+# Workers AI — Review "Generate" drafts via Mistral Small 3.1.
+# Free: 10k Neurons/day; overage needs Workers Paid ($0.011 / 1k Neurons).
+[ai]
+binding = "AI"
+
 # Secrets (set with `wrangler secret put NAME`, never committed):
 #   X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET  (the 4 from X)
 #   APP_SECRET                                                (UI passphrase)

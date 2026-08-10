@@ -26,6 +26,9 @@ Mac-mini dependency, always on.
   the front card when it’s almost right. One-step undo (survives refresh). Deck
   is stored in D1 so you can leave and continue. Over-280 posts stay in the deck
   with a warning and can only be rejected or edited down, not accepted.
+- **AI generate (Review)** — draft more posts with Workers AI (**Mistral Small
+  3.1 24B**) using your recent history + queue as voice samples. Drafts land in
+  the review deck for swipe triage. Free tier: 10k Neurons/day on Cloudflare.
 - **Cost tracking (AUD)** — live per-post cost estimate in the composer (flags
   links, which are 13× pricier), per-item costs, a "cost to drain the queue"
   total, and a running "spent so far" total. USD→AUD via a cron-cached live rate.
@@ -133,6 +136,7 @@ top item** (`POST /api/post-now`) both still respect the daily cap.
 | POST | `/api/queue/bulk` | Add many `{texts:[]}` |
 | GET | `/api/review` | Deck state (also embedded in `/api/state` as `review`) |
 | POST | `/api/review` | Seed deck `{texts:[], mode:"replace"\|"append"}` |
+| POST | `/api/review/generate` | AI draft into deck `{count?, mode?, topic?}` |
 | DELETE | `/api/review` | Empty the whole deck |
 | PATCH | `/api/review/:id` | Edit a deck item `{text}` |
 | DELETE | `/api/review/:id` | Remove one deck item |
