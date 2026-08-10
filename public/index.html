@@ -577,7 +577,7 @@
     <div class="swipe-stage" id="swipeStage">
       <div class="swipe-card" id="swipeCard" hidden>
         <div class="card-text" id="swipeText"></div>
-        <textarea class="card-edit" id="swipeEdit" hidden></textarea>
+        <textarea class="card-edit" id="swipeEdit" hidden enterkeyhint="done" rows="4"></textarea>
         <div class="edit-bar" id="swipeEditBar" hidden>
           <span class="count" id="swipeEditCount">0 / 280</span>
           <span class="spacer"></span>
@@ -2031,6 +2031,14 @@
       autoGrow(document.getElementById("swipeEdit"));
       updateSwipeMeta();
     });
+    // Keyboard Done/tick (enterkeyhint=done) and Enter save + dismiss the field.
+    // Shift+Enter still inserts a newline when the keyboard offers it.
+    document.getElementById("swipeEdit").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        saveSwipeEdit(); // blurs + exits edit mode
+      }
+    });
     // Tap outside the card (stage / chrome) while editing → save
     document.getElementById("reviewSwipe").addEventListener("click", (e) => {
       if (!swipeMode || !swipeEditing) return;
@@ -2051,11 +2059,7 @@
         return;
       }
       if (swipeEditing) {
-        // Enter (no shift) saves on desktop, matching queue edit.
-        if (!isTouch && e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          saveSwipeEdit();
-        }
+        // Enter handled on the textarea (mobile Done/tick + desktop).
         return;
       }
       if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "z" || e.key === "Z") {
