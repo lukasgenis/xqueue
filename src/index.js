@@ -575,6 +575,7 @@ async function generateReviewDrafts(env, body) {
     `- Each post under ${MAX_TWEET_LEN} characters (hard limit).`,
     "- ALWAYS all lowercase. Never use capital letters (not even at the start of a sentence or for names/brands unless a URL requires it).",
     "- NEVER use em dashes (—) or en dashes (–). Use a comma, period, or a normal hyphen (-) instead.",
+    "- No trailing full stop/period at the end of a post. End clean — mid-post periods between sentences are fine; ? and ! are fine when they carry tone.",
     "- One idea per post. No numbering in the post body.",
     "- No hashtag spam. No 'thread 1/n'. No emojis unless samples use them often.",
     "- Do not copy samples verbatim. Do not invent fake URLs.",
@@ -693,7 +694,6 @@ function parseGeneratedPosts(text, want) {
         b
           .replace(/^\s*[-*•]\s+/gm, "")
           .replace(/^\s*\d+[.)]\s+/gm, "")
-          .replace(/^["']|["']$/g, "")
           .trim()
       );
     } else {
@@ -704,7 +704,6 @@ function parseGeneratedPosts(text, want) {
           l
             .replace(/^\s*[-*•]\s+/, "")
             .replace(/^\s*\d+[.)]\s+/, "")
-            .replace(/^["']|["']$/g, "")
             .trim()
         )
         .filter(Boolean);
@@ -720,6 +719,8 @@ function parseGeneratedPosts(text, want) {
     if (/^(here are|posts?:|output:)/i.test(t) && t.length < 40) continue;
     // Models often insert markdown horizontal rules as separators (---, ***, ___).
     if (/^[-–—*_=~]{2,}$/.test(t)) continue;
+    // Unwrap model wrapper quotes only when both ends match (keeps real edge quotes).
+    t = unwrapOuterQuotes(t);
     // House style: always lowercase; no em/en dashes (model may ignore prompt rules).
     t = normalizeDraftStyle(t);
     if (!t) continue;
@@ -735,13 +736,58 @@ function parseGeneratedPosts(text, want) {
   return out;
 }
 
+// Models often wrap each post in quotes ("…", '…', “…”). Only strip when BOTH
+// ends are a matching pair so intentional leading/trailing quotes stay put —
+// e.g. `"never bet…" is still true` or `he said "we're done"`.
+function unwrapOuterQuotes(text) {
+  let s = String(text || "").trim();
+  if (s.length < 2) return s;
+
+  const pairs = [
+    ['"', '"'],
+    ["'", "'"],
+    ["\u201c", "\u201d"], // “ ”
+    ["\u2018", "\u2019"], // ‘ ’
+  ];
+
+  // Unwrap at most a couple of layers (e.g. ""post"").
+  for (let layer = 0; layer < 2; layer++) {
+    let peeled = false;
+    for (const [open, close] of pairs) {
+      if (s.length < open.length + close.length + 1) continue;
+      if (!s.startsWith(open) || !s.endsWith(close)) continue;
+      const inner = s.slice(open.length, s.length - close.length).trim();
+      if (!inner) continue;
+      s = inner;
+      peeled = true;
+      break;
+    }
+    if (!peeled) break;
+  }
+  return s;
+}
+
 // Enforce xqueue draft house style after the model responds.
 function normalizeDraftStyle(text) {
-  return String(text || "")
-    .replace(/[\u2014\u2013]/g, "-") // em dash / en dash → hyphen
-    .replace(/\s+-\s+/g, " - ") // tidy spaced hyphens
-    .toLowerCase()
-    .trim();
+  return stripTrailingPeriod(
+    String(text || "")
+      .replace(/[\u2014\u2013]/g, "-") // em dash / en dash → hyphen
+      .replace(/\s+-\s+/g, " - ") // tidy spaced hyphens
+      .toLowerCase()
+      .trim()
+  );
+}
+
+// House style: no obligatory terminal full stop. Keeps ellipsis (... / …),
+// ? and !, and any internal periods between sentences.
+function stripTrailingPeriod(text) {
+  const s = String(text || "");
+  if (!s.endsWith(".")) return s;
+  // Preserve deliberate ellipsis
+  if (s.endsWith("...") || s.endsWith("…")) return s;
+  // "word…." or "word...." — leave multi-dot endings alone
+  if (/\.\.$/.test(s)) return s;
+  return s.slice(0, -1).trimEnd();
 }
 
 async function seedReview(env, texts, mode) {
