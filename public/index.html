@@ -241,8 +241,14 @@
     .swipe-top {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
       max-width: 520px; width: 100%; margin: 0 auto 12px;
+      position: relative; z-index: 6; flex-shrink: 0;
     }
     .swipe-top .progress { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .swipe-top button {
+      min-height: 44px; min-width: 72px; padding: 10px 16px; font-size: 15px;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+      position: relative; z-index: 7;
+    }
     .swipe-stage {
       flex: 1; display: flex; align-items: center; justify-content: center;
       max-width: 520px; width: 100%; margin: 0 auto; min-height: 0; position: relative;
@@ -296,9 +302,11 @@
     .swipe-actions {
       display: flex; align-items: center; justify-content: center; gap: 18px;
       max-width: 520px; width: 100%; margin: 18px auto 0; flex-wrap: wrap;
+      position: relative; z-index: 6; flex-shrink: 0;
     }
     .swipe-actions button {
       min-width: 64px; min-height: 64px; border-radius: 999px; font-size: 22px; padding: 12px 18px;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
     }
     .swipe-actions .rej { border-color: #5c2a2c; color: var(--danger); }
     .swipe-actions .rej:hover:not(:disabled) { background: #2a1416; border-color: var(--danger); }
@@ -1160,7 +1168,7 @@
       document.getElementById("reviewPanel").hidden = true;
       const p = document.getElementById("importPanel");
       p.hidden = !p.hidden;
-      if (!p.hidden) document.getElementById("importText").focus();
+      // Don't auto-focus the textarea — on mobile that pops the keyboard.
     });
     document.getElementById("importText").addEventListener("input", updateImportCount);
     document.querySelectorAll('input[name="split"]').forEach((r) =>
@@ -1369,10 +1377,15 @@
       document.body.style.overflow = "hidden";
       renderSwipeCard();
     }
-    async function closeSwipeMode() {
-      // Persist any in-progress card edit before leaving (same as tap-outside).
+    function closeSwipeMode() {
+      // Hide immediately so Done feels responsive; save any draft in the background.
+      let pendingSave = null;
       if (swipeEditing && !swipeBusy) {
-        await saveSwipeEdit();
+        const item = currentSwipeItem();
+        const text = document.getElementById("swipeEdit").value.trim();
+        if (item && text) {
+          pendingSave = { id: item.id, text };
+        }
       }
       swipeMode = false;
       swipeEditing = false;
@@ -1380,8 +1393,15 @@
       swipeEnterBelow = false;
       document.getElementById("reviewSwipe").hidden = true;
       document.body.style.overflow = "";
-      // Keep review panel open if deck remains, so user can manage list.
       render();
+      if (pendingSave) {
+        api("/api/review/" + pendingSave.id, {
+          method: "PATCH",
+          body: JSON.stringify({ text: pendingSave.text }),
+        }).then((res) => {
+          if (res && res.ok) state = res;
+        }).catch(() => {});
+      }
     }
 
     function currentSwipeItem() {
@@ -1489,35 +1509,54 @@
       }
     }
 
-    function animateCard(dir) {
+    // Continue the card off-screen from its current drag offset (no snap-to-centre first).
+    function finishSwipeOut(dir, fromDx) {
       return new Promise((resolve) => {
         const card = document.getElementById("swipeCard");
-        card.style.transition = "";
-        card.classList.add(dir === "left" ? "flash-no" : "flash-ok");
+        const w = Math.max(window.innerWidth, card.offsetWidth || 320);
+        const target = dir === "right" ? w * 1.25 : -w * 1.25;
+        const start = typeof fromDx === "number" ? fromDx : 0;
+        // Pin starting point without transition, then animate the rest of the way out.
+        card.style.transition = "none";
+        card.style.transform = `translateX(${start}px) rotate(${start / 40}deg)`;
+        card.style.opacity = String(Math.max(0.35, 1 - Math.abs(start) / 420));
+        card.classList.add(dir === "right" ? "flash-ok" : "flash-no");
         void card.offsetWidth;
-        card.classList.add(dir === "left" ? "out-left" : "out-right");
-        setTimeout(resolve, 220);
+        card.style.transition = "transform .2s ease-out, opacity .2s ease-out";
+        card.style.transform = `translateX(${target}px) rotate(${target / 40}deg)`;
+        card.style.opacity = "0";
+        setTimeout(resolve, 200);
       });
     }
 
-    async function swipeAccept() {
+    // Button / keyboard path: fly out from centre.
+    function animateCard(dir) {
+      return finishSwipeOut(dir, 0);
+    }
+
+    async function swipeAccept(opts) {
+      opts = opts || {};
       if (swipeBusy || swipeEditing) return;
       const item = currentSwipeItem();
       if (!item) return;
       const text = swipeTextValue().trim();
       if (!text || text.length > MAX_LEN) {
         toast(text.length > MAX_LEN ? `Too long (${text.length}/${MAX_LEN})` : "Empty post");
+        // If we were mid-drag, spring back
+        if (opts.fromDx != null) springCardBack(opts.fromDx);
         return;
       }
       swipeBusy = true;
       updateSwipeMeta();
+      // Animate out immediately from drag position (don't wait on the network).
+      const fly = finishSwipeOut("right", opts.fromDx != null ? opts.fromDx : 0);
       try {
         const res = await api("/api/review/" + item.id + "/accept", {
           method: "POST",
           body: JSON.stringify({ text }),
         });
+        await fly;
         if (res.ok) {
-          await animateCard("right");
           swipeEditing = false;
           swipeSession.accepted++;
           state = res;
@@ -1526,6 +1565,8 @@
           updateReviewChrome();
         } else {
           toast(res.error || "Couldn't queue");
+          resetSwipeCardInstant();
+          renderSwipeCard();
         }
       } catch (e) { /* api() */ }
       finally {
@@ -1534,16 +1575,18 @@
       }
     }
 
-    async function swipeReject() {
+    async function swipeReject(opts) {
+      opts = opts || {};
       if (swipeBusy || swipeEditing) return;
       const item = currentSwipeItem();
       if (!item) return;
       swipeBusy = true;
       updateSwipeMeta();
+      const fly = finishSwipeOut("left", opts.fromDx != null ? opts.fromDx : 0);
       try {
         const res = await api("/api/review/" + item.id + "/reject", { method: "POST" });
+        await fly;
         if (res.ok) {
-          await animateCard("left");
           swipeEditing = false;
           swipeSession.rejected++;
           state = res;
@@ -1552,6 +1595,8 @@
           updateReviewChrome();
         } else {
           toast(res.error || "Couldn't reject");
+          resetSwipeCardInstant();
+          renderSwipeCard();
         }
       } catch (e) { /* api() */ }
       finally {
@@ -1560,11 +1605,24 @@
       }
     }
 
+    function springCardBack(fromDx) {
+      const card = document.getElementById("swipeCard");
+      card.style.transition = "none";
+      card.style.transform = `translateX(${fromDx || 0}px) rotate(${(fromDx || 0) / 40}deg)`;
+      card.classList.remove("flash-ok", "flash-no");
+      void card.offsetWidth;
+      card.style.transition = "transform .22s ease, opacity .22s ease";
+      card.style.transform = "";
+      card.style.opacity = "";
+    }
+
     async function swipeUndo() {
       if (swipeBusy) return;
       if (!(state && state.review && state.review.canUndo)) return;
+      // Visual feedback immediately
+      const btn = document.getElementById("swipeUndo");
+      btn.disabled = true;
       swipeBusy = true;
-      updateSwipeMeta();
       try {
         const res = await api("/api/review/undo", { method: "POST" });
         if (res.ok) {
@@ -1693,7 +1751,7 @@
       if (!p.hidden) {
         updateReviewSeedCount();
         renderReviewDeckList();
-        document.getElementById("reviewText").focus();
+        // Don't auto-focus the textarea — on mobile that pops the keyboard.
       }
     });
     document.getElementById("reviewText").addEventListener("input", updateReviewSeedCount);
@@ -1742,11 +1800,35 @@
       } catch (e) { /* api() */ }
     });
 
-    document.getElementById("swipeClose").addEventListener("click", closeSwipeMode);
-    document.getElementById("swipeEmptyDone").addEventListener("click", closeSwipeMode);
-    document.getElementById("swipeAccept").addEventListener("click", () => swipeAccept());
-    document.getElementById("swipeReject").addEventListener("click", () => swipeReject());
-    document.getElementById("swipeUndo").addEventListener("click", () => swipeUndo());
+    // Fast tap for review chrome (Done / Undo / accept / reject).
+    // Uses pointerup + debounce so mobile doesn't wait on the slow click path,
+    // and a second event (click after pointerup) can't double-fire.
+    function bindTap(el, fn) {
+      let last = 0;
+      const fire = (e) => {
+        const now = Date.now();
+        if (now - last < 350) return;
+        last = now;
+        e.preventDefault();
+        e.stopPropagation();
+        fn(e);
+      };
+      el.addEventListener("pointerup", (e) => {
+        if (e.button != null && e.button !== 0) return;
+        // Ignore if the press didn't start on this control (e.g. swipe release)
+        if (e.target !== el && !el.contains(e.target)) return;
+        fire(e);
+      });
+      el.addEventListener("click", (e) => {
+        // Safety net when PointerEvent isn't available or was cancelled
+        fire(e);
+      });
+    }
+    bindTap(document.getElementById("swipeClose"), () => closeSwipeMode());
+    bindTap(document.getElementById("swipeEmptyDone"), () => closeSwipeMode());
+    bindTap(document.getElementById("swipeAccept"), () => swipeAccept());
+    bindTap(document.getElementById("swipeReject"), () => swipeReject());
+    bindTap(document.getElementById("swipeUndo"), () => swipeUndo());
     document.getElementById("swipeEditCancel").addEventListener("click", (e) => {
       e.stopPropagation();
       cancelSwipeEdit();
@@ -1759,21 +1841,11 @@
       autoGrow(document.getElementById("swipeEdit"));
       updateSwipeMeta();
     });
-    // Tap card text → enter edit mode
-    document.getElementById("swipeText").addEventListener("click", (e) => {
-      if (swipeBusy || swipeEditing) return;
-      // Ignore if this was the end of a horizontal swipe (handled by pointer code)
-      if (swipePointer.didSwipe) return;
-      e.stopPropagation();
-      enterSwipeEdit();
-    });
     // Tap outside the card (stage / chrome) while editing → save
     document.getElementById("reviewSwipe").addEventListener("click", (e) => {
       if (!swipeMode || !swipeEditing) return;
       const card = document.getElementById("swipeCard");
       if (card.contains(e.target)) return;
-      // Don't steal clicks on accept/reject/undo/done while not intended... actually
-      // accept/reject are disabled during edit. Undo/Done still work.
       if (e.target.closest("button")) return;
       saveSwipeEdit();
     });
@@ -1804,16 +1876,21 @@
       else if (e.key === "z" || e.key === "Z") swipeUndo();
     });
 
-    // Pointer/touch swipe on the card. Prefer PointerEvent; fall back to touch*
-    // so we never double-handle on devices that fire both.
+    // Pointer/touch swipe on the card.
+    // - Commit swipe past COMMIT_PX; green/red only past FLASH_PX (later, less sensitive)
+    // - Pure short tap (no axis lock, tiny movement) → edit
+    // - Drag then release short of commit → spring back, never edit
     const swipePointer = {
-      active: false, id: null, startX: 0, startY: 0, lastY: 0,
-      dx: 0, dy: 0, axis: null, didSwipe: false, scrollEl: null,
+      active: false, id: null, startX: 0, startY: 0, lastY: 0, startT: 0,
+      dx: 0, dy: 0, maxMove: 0, axis: null, scrollEl: null,
     };
     (function setupCardSwipe() {
       const card = document.getElementById("swipeCard");
-      const THRESH = 64;
-      const AXIS_LOCK = 10;
+      const COMMIT_PX = 96;   // distance to accept/reject
+      const FLASH_PX = 130;   // green/red only after a deliberate pull
+      const AXIS_LOCK = 14;
+      const TAP_MAX_MOVE = 8; // must stay under this for edit
+      const TAP_MAX_MS = 320; // and under this duration
 
       function point(e) {
         if (e.touches && e.touches[0]) return e.touches[0];
@@ -1830,10 +1907,11 @@
         swipePointer.startX = p.clientX;
         swipePointer.startY = p.clientY;
         swipePointer.lastY = p.clientY;
+        swipePointer.startT = Date.now();
         swipePointer.dx = 0;
         swipePointer.dy = 0;
+        swipePointer.maxMove = 0;
         swipePointer.axis = null;
-        swipePointer.didSwipe = false;
         swipePointer.scrollEl = e.target.closest(".card-text");
         card.style.transition = "none";
         if (e.pointerId != null && card.setPointerCapture) {
@@ -1849,6 +1927,7 @@
         swipePointer.dy = p.clientY - swipePointer.startY;
         const adx = Math.abs(swipePointer.dx);
         const ady = Math.abs(swipePointer.dy);
+        swipePointer.maxMove = Math.max(swipePointer.maxMove, adx, ady);
         if (!swipePointer.axis && (adx > AXIS_LOCK || ady > AXIS_LOCK)) {
           swipePointer.axis = adx >= ady ? "x" : "y";
         }
@@ -1856,11 +1935,11 @@
           if (e.cancelable) e.preventDefault();
           const rot = swipePointer.dx / 40;
           card.style.transform = `translateX(${swipePointer.dx}px) rotate(${rot}deg)`;
-          card.style.opacity = String(Math.max(0.35, 1 - adx / 420));
-          card.classList.toggle("flash-ok", swipePointer.dx > THRESH);
-          card.classList.toggle("flash-no", swipePointer.dx < -THRESH);
+          card.style.opacity = String(Math.max(0.4, 1 - adx / 500));
+          // Colour cue only once well past the commit threshold
+          card.classList.toggle("flash-ok", swipePointer.dx > FLASH_PX);
+          card.classList.toggle("flash-no", swipePointer.dx < -FLASH_PX);
         } else if (swipePointer.axis === "y" && swipePointer.scrollEl) {
-          // Manual vertical scroll of long post text (card uses touch-action: none).
           if (e.cancelable) e.preventDefault();
           const dy = p.clientY - swipePointer.lastY;
           swipePointer.scrollEl.scrollTop -= dy;
@@ -1872,29 +1951,46 @@
         if (!swipePointer.active) return;
         if (swipePointer.id != null && e.pointerId != null && e.pointerId !== swipePointer.id) return;
         swipePointer.active = false;
-        card.style.transition = "";
-        card.classList.remove("flash-ok", "flash-no");
+        if (e.pointerId != null && card.releasePointerCapture) {
+          try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
         const dx = swipePointer.dx;
-        const dy = swipePointer.dy;
         const adx = Math.abs(dx);
-        const ady = Math.abs(dy);
+        const elapsed = Date.now() - swipePointer.startT;
+        const wasDrag = swipePointer.axis != null || swipePointer.maxMove > TAP_MAX_MOVE;
+
+        if (swipePointer.axis === "x" && adx >= COMMIT_PX) {
+          // Continue out from current position — do NOT reset to centre first.
+          if (dx > 0) swipeAccept({ fromDx: dx });
+          else swipeReject({ fromDx: dx });
+          return;
+        }
+
+        if (swipePointer.axis === "x") {
+          // Mid-swipe change of mind: spring back, never enter edit.
+          springCardBack(dx);
+          return;
+        }
+
+        // Pure tap only: no axis lock, almost no movement, short press.
+        const isPureTap =
+          !wasDrag &&
+          swipePointer.maxMove <= TAP_MAX_MOVE &&
+          elapsed <= TAP_MAX_MS;
+
+        if (isPureTap) {
+          card.style.transform = "";
+          card.style.opacity = "";
+          card.classList.remove("flash-ok", "flash-no");
+          enterSwipeEdit();
+          return;
+        }
+
+        // Scroll or long-press with no commit: just reset visuals.
+        card.style.transition = "transform .18s ease, opacity .18s ease";
         card.style.transform = "";
         card.style.opacity = "";
-
-        if (swipePointer.axis === "x" && adx >= THRESH) {
-          swipePointer.didSwipe = true;
-          if (dx > 0) swipeAccept();
-          else swipeReject();
-          setTimeout(() => { swipePointer.didSwipe = false; }, 80);
-        } else if (adx < 12 && ady < 12) {
-          // Tap anywhere on the card (not a control) → edit.
-          swipePointer.didSwipe = false;
-          if (e.target && e.target.closest && !e.target.closest("button") && !e.target.closest("textarea")) {
-            enterSwipeEdit();
-          }
-        } else {
-          swipePointer.didSwipe = false;
-        }
+        card.classList.remove("flash-ok", "flash-no");
       }
 
       if (window.PointerEvent) {
