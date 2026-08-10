@@ -1886,8 +1886,9 @@
     };
     (function setupCardSwipe() {
       const card = document.getElementById("swipeCard");
-      const COMMIT_PX = 96;   // distance to accept/reject
-      const FLASH_PX = 130;   // green/red only after a deliberate pull
+      // Commit only once the card has gone green/red — anything short snaps back.
+      const COMMIT_PX = 130;
+      const FLASH_PX = 130;
       const AXIS_LOCK = 14;
       const TAP_MAX_MOVE = 8; // must stay under this for edit
       const TAP_MAX_MS = 320; // and under this duration
