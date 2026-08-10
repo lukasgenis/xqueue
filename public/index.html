@@ -507,7 +507,7 @@
   <!-- Review swipe overlay (outside .wrap so it covers the full viewport) -->
   <div class="review-swipe" id="reviewSwipe" hidden>
     <div class="swipe-top">
-      <button id="swipeClose" class="btn-secondary">Done</button>
+      <button id="swipeClose" class="btn-secondary" title="Leave swipe — open deck list">Done</button>
       <span class="progress" id="swipeProgress">0 left</span>
       <button id="swipeUndo" class="btn-secondary" disabled title="Undo last (Z)">↩ Undo</button>
     </div>
@@ -529,7 +529,7 @@
       <div class="swipe-empty" id="swipeEmpty" hidden>
         <h2>Deck clear</h2>
         <p>Nothing left to review. Accepted posts are already in your queue.</p>
-        <button class="primary" id="swipeEmptyDone">Back to queue</button>
+        <button class="primary" id="swipeEmptyDone">Done</button>
       </div>
     </div>
     <div class="swipe-actions" id="swipeActions">
@@ -1376,17 +1376,32 @@
       });
     }
 
+    function openReviewPanel() {
+      document.getElementById("importPanel").hidden = true;
+      document.getElementById("reviewPanel").hidden = false;
+      updateReviewSeedCount();
+      renderReviewDeckList();
+    }
+
     function openSwipeMode() {
       swipeMode = true;
       swipeEditing = false;
       swipeBusy = false;
       swipeEnterBelow = false;
       swipeSession = { accepted: 0, rejected: 0 };
+      // Swipe covers the app; panel can stay closed underneath.
+      document.getElementById("importPanel").hidden = true;
+      document.getElementById("reviewPanel").hidden = true;
       document.getElementById("reviewSwipe").hidden = false;
       document.body.style.overflow = "hidden";
       renderSwipeCard();
     }
-    function closeSwipeMode() {
+
+    // opts.openPanel: after leaving swipe, show paste + pending list (Done path).
+    // false for lock / hard exit so we don't flash the panel under the login screen.
+    function closeSwipeMode(opts) {
+      opts = opts || {};
+      const openPanel = opts.openPanel !== false; // default true (Done → manage deck)
       // Hide immediately so Done feels responsive; save any draft in the background.
       let pendingSave = null;
       if (swipeEditing && !swipeBusy) {
@@ -1403,13 +1418,36 @@
       document.getElementById("reviewSwipe").hidden = true;
       document.body.style.overflow = "";
       render();
+      if (openPanel) openReviewPanel();
       if (pendingSave) {
         api("/api/review/" + pendingSave.id, {
           method: "PATCH",
           body: JSON.stringify({ text: pendingSave.text }),
         }).then((res) => {
-          if (res && res.ok) state = res;
+          if (res && res.ok) {
+            state = res;
+            if (openPanel && !document.getElementById("reviewPanel").hidden) {
+              renderReviewDeckList();
+              updateReviewChrome();
+            }
+          }
         }).catch(() => {});
+      }
+    }
+
+    // Smart Review: pending deck → swipe now; empty deck → toggle paste/list panel.
+    function smartReviewToggle() {
+      document.getElementById("importPanel").hidden = true;
+      if (swipeMode) return;
+      if (reviewItems().length > 0) {
+        openSwipeMode();
+        return;
+      }
+      const p = document.getElementById("reviewPanel");
+      p.hidden = !p.hidden;
+      if (!p.hidden) {
+        updateReviewSeedCount();
+        renderReviewDeckList();
       }
     }
 
@@ -1761,16 +1799,7 @@
       }
     }
 
-    document.getElementById("reviewToggle").addEventListener("click", () => {
-      document.getElementById("importPanel").hidden = true;
-      const p = document.getElementById("reviewPanel");
-      p.hidden = !p.hidden;
-      if (!p.hidden) {
-        updateReviewSeedCount();
-        renderReviewDeckList();
-        // Don't auto-focus the textarea — on mobile that pops the keyboard.
-      }
-    });
+    document.getElementById("reviewToggle").addEventListener("click", () => smartReviewToggle());
     document.getElementById("reviewText").addEventListener("input", updateReviewSeedCount);
     document.querySelectorAll('input[name="reviewSplit"]').forEach((r) =>
       r.addEventListener("change", updateReviewSeedCount)
@@ -1841,8 +1870,8 @@
         fire(e);
       });
     }
-    bindTap(document.getElementById("swipeClose"), () => closeSwipeMode());
-    bindTap(document.getElementById("swipeEmptyDone"), () => closeSwipeMode());
+    bindTap(document.getElementById("swipeClose"), () => closeSwipeMode({ openPanel: true }));
+    bindTap(document.getElementById("swipeEmptyDone"), () => closeSwipeMode({ openPanel: true }));
     bindTap(document.getElementById("swipeAccept"), () => swipeAccept());
     bindTap(document.getElementById("swipeReject"), () => swipeReject());
     bindTap(document.getElementById("swipeUndo"), () => swipeUndo());
@@ -1874,7 +1903,7 @@
       if (e.key === "Escape") {
         e.preventDefault();
         if (swipeEditing) cancelSwipeEdit();
-        else closeSwipeMode();
+        else closeSwipeMode({ openPanel: true });
         return;
       }
       if (swipeEditing) {
@@ -2031,7 +2060,8 @@
       state = null;
       historyExtra = [];
       queueVisible = 50;
-      if (swipeMode) closeSwipeMode();
+      if (swipeMode) closeSwipeMode({ openPanel: false });
+      document.getElementById("reviewPanel").hidden = true;
       showLogin();
     });
 
