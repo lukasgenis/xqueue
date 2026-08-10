@@ -1770,18 +1770,28 @@
       }
     }
 
+    // When true, blur on the edit field must not auto-save (Cancel button path).
+    let swipeEditIgnoreBlur = false;
+
     function enterSwipeEdit() {
       if (swipeBusy || swipeEditing || !currentSwipeItem()) return;
       swipeEditing = true;
+      swipeEditIgnoreBlur = false;
       renderSwipeCard();
       const editEl = document.getElementById("swipeEdit");
-      editEl.focus();
-      autoGrow(editEl);
+      // Defer focus so the field is visible before iOS brings up the keyboard.
+      setTimeout(() => {
+        editEl.focus();
+        autoGrow(editEl);
+      }, 30);
     }
 
     function cancelSwipeEdit() {
       if (!swipeEditing) return;
+      swipeEditIgnoreBlur = true;
       swipeEditing = false;
+      const editEl = document.getElementById("swipeEdit");
+      if (document.activeElement === editEl) editEl.blur();
       renderSwipeCard();
     }
 
@@ -1792,19 +1802,30 @@
       const text = document.getElementById("swipeEdit").value.trim();
       if (!text) {
         toast("Empty post");
+        // Stay in edit mode so they can fix it; re-focus if keyboard Done blurred us.
+        swipeEditIgnoreBlur = true;
+        const editEl = document.getElementById("swipeEdit");
+        setTimeout(() => {
+          swipeEditIgnoreBlur = false;
+          if (swipeEditing) editEl.focus();
+        }, 0);
         return;
       }
-      // Leave edit mode immediately (optimistic) so tap-away doesn't wait on the network.
+      // Leave edit mode immediately (optimistic). Clear flag before blur so the
+      // blur handler (iOS keyboard Done often only blurs, no Enter) does not double-save.
       const id = item.id;
       const editEl = document.getElementById("swipeEdit");
-      editEl.blur();
       swipeEditing = false;
+      swipeEditIgnoreBlur = true;
+      if (document.activeElement === editEl) editEl.blur();
       if (state && state.review && Array.isArray(state.review.items)) {
         const row = state.review.items.find((it) => it.id === id);
         if (row) row.text = text;
       }
       renderSwipeCard();
       updateReviewChrome();
+      // Allow future edit sessions to use blur-save again.
+      setTimeout(() => { swipeEditIgnoreBlur = false; }, 0);
 
       try {
         const res = await api("/api/review/" + id, {
@@ -2019,6 +2040,14 @@
     bindTap(document.getElementById("swipeAccept"), () => swipeAccept());
     bindTap(document.getElementById("swipeReject"), () => swipeReject());
     bindTap(document.getElementById("swipeUndo"), () => swipeUndo());
+    // Prevent Save/Cancel from blurring the field first (blur would race the click).
+    ["swipeEditCancel", "swipeEditSave"].forEach((id) => {
+      const el = document.getElementById(id);
+      el.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        swipeEditIgnoreBlur = true;
+      });
+    });
     document.getElementById("swipeEditCancel").addEventListener("click", (e) => {
       e.stopPropagation();
       cancelSwipeEdit();
@@ -2031,12 +2060,22 @@
       autoGrow(document.getElementById("swipeEdit"));
       updateSwipeMeta();
     });
-    // Keyboard Done/tick (enterkeyhint=done) and Enter save + dismiss the field.
-    // Shift+Enter still inserts a newline when the keyboard offers it.
+    // iOS: keyboard Done / dismiss often only blurs the field — no Enter event.
+    // Saving on blur is the reliable mobile path.
+    document.getElementById("swipeEdit").addEventListener("blur", () => {
+      if (!swipeMode || !swipeEditing || swipeEditIgnoreBlur) return;
+      // Defer so a tap on Save/Cancel can set the ignore flag first.
+      setTimeout(() => {
+        if (!swipeMode || !swipeEditing || swipeEditIgnoreBlur) return;
+        saveSwipeEdit();
+      }, 0);
+    });
+    // Desktop Enter / some Android keyboards that fire Enter for Done.
+    // Shift+Enter still inserts a newline when available.
     document.getElementById("swipeEdit").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        saveSwipeEdit(); // blurs + exits edit mode
+        saveSwipeEdit();
       }
     });
     // Tap outside the card (stage / chrome) while editing → save
