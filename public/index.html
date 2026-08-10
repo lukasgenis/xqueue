@@ -1779,11 +1779,10 @@
       swipeEditIgnoreBlur = false;
       renderSwipeCard();
       const editEl = document.getElementById("swipeEdit");
-      // Defer focus so the field is visible before iOS brings up the keyboard.
-      setTimeout(() => {
-        editEl.focus();
-        autoGrow(editEl);
-      }, 30);
+      // Must focus synchronously inside the tap gesture — any setTimeout and
+      // iOS will show the field but not open the keyboard.
+      editEl.focus();
+      autoGrow(editEl);
     }
 
     function cancelSwipeEdit() {
