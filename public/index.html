@@ -117,7 +117,10 @@
     }
     button:hover { border-color: var(--accent-dim); }
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-    button.primary:disabled { opacity: .4; cursor: not-allowed; }
+    button:disabled, button.primary:disabled, button.btn-secondary:disabled {
+      opacity: .4; cursor: not-allowed;
+    }
+    button:disabled:hover { border-color: var(--border); }
 
     .controls {
       display: flex; align-items: flex-end; justify-content: space-between;
@@ -181,6 +184,106 @@
     .file-label:hover { border-color: var(--accent-dim); }
     .import-bar .count.over { color: var(--danger); }
     .import-bar button { padding: 5px 14px; font-size: 13px; }
+
+    .controls-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    @media (max-width: 520px) {
+      #reviewToggle { margin-top: 12px; }
+      .review-bar .spacer { flex-basis: 100%; height: 0; margin: 0; }
+      .review-bar button { padding: 8px 16px; font-size: 14px; }
+    }
+    .review-panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px; margin-top: 8px;
+    }
+    .review-panel textarea {
+      width: 100%; min-height: 120px; resize: vertical;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font: inherit; padding: 8px; outline: none;
+    }
+    .review-panel textarea:focus { border-color: var(--accent-dim); }
+    .review-bar { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+    .review-deck-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin: 16px 2px 8px; flex-wrap: wrap;
+    }
+    .review-deck-head .label {
+      font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+    }
+    .review-deck-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .review-deck-actions button { padding: 5px 12px; font-size: 13px; }
+    .review-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+    .review-list .item.over { border-color: #5c2a2c; }
+    .review-list .item .char-meta { font-variant-numeric: tabular-nums; }
+    .review-list .item .char-meta.over { color: var(--danger); }
+
+    /* Full-screen Review swipe mode */
+    .review-swipe {
+      position: fixed; inset: 0; z-index: 40;
+      display: flex; flex-direction: column;
+      background: var(--bg); padding: 16px 16px 24px;
+    }
+    .review-swipe[hidden] { display: none; }
+    .swipe-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      max-width: 520px; width: 100%; margin: 0 auto 12px;
+    }
+    .swipe-top .progress { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .swipe-stage {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      max-width: 520px; width: 100%; margin: 0 auto; min-height: 0; position: relative;
+    }
+    .swipe-card {
+      width: 100%; max-height: 100%;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
+      padding: 22px 20px 16px; display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 16px 48px rgba(0,0,0,.35);
+      transition: transform .22s ease, opacity .22s ease, border-color .15s, background .15s;
+      touch-action: pan-y;
+      overflow: hidden;
+    }
+    .swipe-card.out-left { transform: translateX(-120%) rotate(-8deg); opacity: 0; }
+    .swipe-card.out-right { transform: translateX(120%) rotate(8deg); opacity: 0; }
+    .swipe-card.flash-ok { border-color: #1f5c3a; background: #14241c; }
+    .swipe-card.flash-no { border-color: #5c2a2c; background: #241416; }
+    .swipe-card .card-text {
+      flex: 1; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;
+      font-size: 18px; line-height: 1.45; min-height: 120px;
+    }
+    .swipe-card .card-edit {
+      flex: 1; width: 100%; min-height: 140px; resize: vertical;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font: inherit; font-size: 17px; padding: 12px; outline: none;
+    }
+    .swipe-card .card-edit:focus { border-color: var(--accent-dim); }
+    .swipe-card .card-meta {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    .swipe-card .card-meta .count.over { color: var(--danger); font-weight: 600; }
+    .swipe-card .card-meta .warn { color: var(--danger); font-size: 12px; }
+    .swipe-actions {
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      max-width: 520px; width: 100%; margin: 18px auto 0; flex-wrap: wrap;
+    }
+    .swipe-actions button {
+      min-width: 56px; min-height: 56px; border-radius: 999px; font-size: 20px; padding: 12px 16px;
+    }
+    .swipe-actions .rej { border-color: #5c2a2c; color: var(--danger); }
+    .swipe-actions .rej:hover:not(:disabled) { background: #2a1416; border-color: var(--danger); }
+    .swipe-actions .acc { background: var(--ok); border-color: var(--ok); color: #0e1113; font-weight: 700; }
+    .swipe-actions .acc:hover:not(:disabled) { filter: brightness(1.08); }
+    .swipe-actions .acc:disabled { opacity: .35; }
+    .swipe-actions .mid { font-size: 15px; min-width: 48px; min-height: 48px; padding: 10px 14px; }
+    .swipe-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
+    .swipe-empty {
+      text-align: center; color: var(--muted); padding: 40px 16px;
+    }
+    .swipe-empty h2 { color: var(--text); margin: 0 0 8px; font-size: 20px; }
+    .badge-count {
+      display: inline-block; min-width: 1.4em; padding: 0 6px; margin-left: 4px;
+      border-radius: 999px; background: var(--accent); color: #fff;
+      font-size: 11px; font-weight: 700; line-height: 1.6; vertical-align: middle;
+    }
 
     .next-line { font-size: 12px; color: var(--muted); margin: 14px 2px 8px; }
     .next-line b { color: var(--text); font-weight: 600; }
@@ -302,7 +405,10 @@
         <span class="ctl-label" id="cadenceLabel">Interval (whole queue)</span>
         <div class="intervals" id="intervals"></div>
       </div>
-      <button id="importToggle" class="btn-secondary">⇪ Bulk import</button>
+      <div class="controls-actions">
+        <button id="importToggle" class="btn-secondary">⇪ Bulk import</button>
+        <button id="reviewToggle" class="btn-secondary">✂ Review<span class="badge-count" id="reviewBadge" hidden>0</span></button>
+      </div>
     </div>
 
     <div class="import-panel" id="importPanel" hidden>
@@ -323,7 +429,66 @@
       </div>
     </div>
 
+    <div class="review-panel" id="reviewPanel" hidden>
+      <textarea id="reviewText" placeholder="Paste posts to review one-by-one — or choose a .txt / .md / .csv file.&#10;&#10;Accept queues immediately; reject discards. Leave anytime and pick up where you left off."></textarea>
+      <div class="review-bar">
+        <div class="split-group">
+          <span class="split-label">Separate posts by</span>
+          <span class="split-options">
+            <label class="split"><input type="radio" name="reviewSplit" value="blank" checked> blank line</label>
+            <label class="split"><input type="radio" name="reviewSplit" value="line"> one per line</label>
+          </span>
+        </div>
+        <label class="file-label">Choose file<input type="file" id="reviewFile" accept=".txt,.md,.csv,text/plain" hidden></label>
+        <span class="spacer"></span>
+        <span class="count" id="reviewSeedCount">0 posts</span>
+        <button id="reviewCancel">Cancel</button>
+        <button class="primary" id="reviewSeed" disabled>Add to review</button>
+      </div>
+      <div id="reviewDeckSection" hidden>
+        <div class="review-deck-head">
+          <span class="label" id="reviewDeckLabel">Deck</span>
+          <div class="review-deck-actions">
+            <button id="reviewEmpty" class="btn-secondary">Empty deck</button>
+            <button class="primary" id="reviewContinue">Continue reviewing</button>
+          </div>
+        </div>
+        <div class="review-list" id="reviewList"></div>
+      </div>
+    </div>
+
     <div class="next-line" id="next"></div>
+
+  <!-- Review swipe overlay (outside .wrap so it covers the full viewport) -->
+  <div class="review-swipe" id="reviewSwipe" hidden>
+    <div class="swipe-top">
+      <button id="swipeClose" class="btn-secondary">Done</button>
+      <span class="progress" id="swipeProgress">0 left</span>
+      <button id="swipeUndo" class="btn-secondary" disabled title="Undo last (Z)">↩ Undo</button>
+    </div>
+    <div class="swipe-stage" id="swipeStage">
+      <div class="swipe-card" id="swipeCard" hidden>
+        <div class="card-text" id="swipeText"></div>
+        <textarea class="card-edit" id="swipeEdit" hidden></textarea>
+        <div class="card-meta">
+          <span class="count" id="swipeCount">0 / 280</span>
+          <span class="cost" id="swipeCost"></span>
+          <span class="warn" id="swipeWarn" hidden>Over 280 — edit or reject</span>
+        </div>
+      </div>
+      <div class="swipe-empty" id="swipeEmpty" hidden>
+        <h2>Deck clear</h2>
+        <p>Nothing left to review. Accepted posts are already in your queue.</p>
+        <button class="primary" id="swipeEmptyDone">Back to queue</button>
+      </div>
+    </div>
+    <div class="swipe-actions" id="swipeActions">
+      <button class="rej" id="swipeReject" title="Reject (←)">✕</button>
+      <button class="mid" id="swipeEditBtn" title="Edit (E)">✎</button>
+      <button class="acc" id="swipeAccept" title="Accept → queue (→)">✓</button>
+    </div>
+    <p class="swipe-hint" id="swipeHint">← reject · → accept · E edit · Z undo</p>
+  </div>
 
     <div class="tabs">
       <button class="tab active" id="tabQueue">Queue</button>
@@ -357,9 +522,15 @@
     let queueVisible = 50; // how many queued posts to render ("Load more" raises this)
     let historyExtra = []; // older history rows loaded past the first page (Load more)
     let activeTab = "queue"; // which list tab is showing: "queue" | "history"
+    let reviewEditingId = null; // deck-list row being edited
+    let swipeMode = false; // full-screen card review open
+    let swipeEditing = false; // editing the front card
+    let swipeBusy = false; // block double-tap during animation/request
+    let swipeSession = { accepted: 0, rejected: 0 }; // client-side counters for this open
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    const MAX_LEN = 280;
 
     function showLogin(error) {
       const el = document.getElementById("login");
@@ -496,6 +667,10 @@
         /\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|xyz|me|gg|so|to|tv|info|link|page|site|news|blog|store|shop)\b/i.test(t);
     }
 
+    function reviewItems() {
+      return (state && state.review && state.review.items) || [];
+    }
+
     function render() {
       if (!state) return;
       const scrollY = window.scrollY; // preserve position across the list rebuild
@@ -516,6 +691,8 @@
         };
         box.appendChild(b);
       });
+
+      updateReviewChrome();
 
       // Usage + next line
       const paused = state.interval_hours === 0;
@@ -560,9 +737,9 @@
           cancel.textContent = "Cancel";
           const setCnt = () => {
             const n = ta.value.length;
-            cnt.textContent = `${n} / 280`;
-            cnt.classList.toggle("over", n > 280);
-            save.disabled = n === 0 || n > 280;
+            cnt.textContent = `${n} / ${MAX_LEN}`;
+            cnt.classList.toggle("over", n > MAX_LEN);
+            save.disabled = n === 0 || n > MAX_LEN;
           };
           ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
           ta.addEventListener("keydown", (e) => {
@@ -724,6 +901,7 @@
     async function refresh() {
       if (!secret) return; // locked — login page is showing
       if (editingId !== null) return; // don't clobber an in-progress edit
+      if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
       try {
         state = await api("/api/state");
         render();
@@ -834,7 +1012,7 @@
     }
 
     async function saveEdit(id, text) {
-      if (!text || text.length > 280) return;
+      if (!text || text.length > MAX_LEN) return;
       try {
         const res = await api("/api/queue/" + id, { method: "PATCH", body: JSON.stringify({ text }) });
         if (res.ok) {
@@ -851,7 +1029,8 @@
     async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
-      if (!text) return; // nothing to post/queue
+      // Same gate for Queue and Post now — empty or over-limit never fire.
+      if (!text || text.length > MAX_LEN) return;
       if (immediate) {
         const ok = await confirmDialog({
           title: "Post to X now?",
@@ -870,14 +1049,14 @@
         if (res.ok) {
           state = res;
           ta.value = "";
-          updateCount();
           render();
           toast(immediate ? "Posted ✅" : "Queued");
         } else {
           toast(res.error || (immediate ? "Post failed" : "Failed to queue"));
         }
       } finally {
-        q.disabled = false; p.disabled = false;
+        // Re-derive disabled from current text (don't blindly re-enable).
+        updateCount();
       }
     }
 
@@ -885,9 +1064,9 @@
       const ta = document.getElementById("text");
       const n = ta.value.length;
       const c = document.getElementById("count");
-      c.textContent = `${n} / 280`;
-      c.classList.toggle("over", n > 280);
-      const disabled = n === 0 || n > 280;
+      c.textContent = `${n} / ${MAX_LEN}`;
+      c.classList.toggle("over", n > MAX_LEN);
+      const disabled = n === 0 || n > MAX_LEN;
       document.getElementById("add").disabled = disabled;
       document.getElementById("postNow").disabled = disabled;
 
@@ -903,7 +1082,9 @@
     document.getElementById("text").addEventListener("keydown", (e) => {
       if (!isTouch && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        add(false); // Enter queues; Post now is an explicit click
+        const n = document.getElementById("text").value.length;
+        const t = document.getElementById("text").value.trim();
+        if (t && n <= MAX_LEN) add(false); // Enter queues; Post now is an explicit click
       }
     });
     document.getElementById("add").addEventListener("click", () => add(false));
@@ -930,15 +1111,16 @@
     }
     function updateImportCount() {
       const posts = parseImport(document.getElementById("importText").value, importSplitMode());
-      const over = posts.filter((p) => p.length > 280).length;
+      const over = posts.filter((p) => p.length > MAX_LEN).length;
       const c = document.getElementById("importCount");
       c.textContent = over
-        ? `${posts.length} posts · ${over} over 280`
+        ? `${posts.length} posts · ${over} over ${MAX_LEN}`
         : `${posts.length} post${posts.length === 1 ? "" : "s"}`;
       c.classList.toggle("over", over > 0);
       document.getElementById("importAdd").disabled = posts.length === 0;
     }
     document.getElementById("importToggle").addEventListener("click", () => {
+      document.getElementById("reviewPanel").hidden = true;
       const p = document.getElementById("importPanel");
       p.hidden = !p.hidden;
       if (!p.hidden) document.getElementById("importText").focus();
@@ -974,7 +1156,7 @@
           state = res;
           let msg = `Added ${res.added}`;
           const skipped = (res.skippedLong || 0) + (res.skippedEmpty || 0);
-          if (res.skippedLong) msg += ` · skipped ${res.skippedLong} over 280`;
+          if (res.skippedLong) msg += ` · skipped ${res.skippedLong} over ${MAX_LEN}`;
           document.getElementById("importText").value = "";
           document.getElementById("importPanel").hidden = true;
           updateImportCount();
@@ -988,6 +1170,552 @@
       }
     });
 
+    // ---- Review (deck + Tinder swipe) ----
+    function reviewSplitMode() {
+      const el = document.querySelector('input[name="reviewSplit"]:checked');
+      return el ? el.value : "blank";
+    }
+    function updateReviewSeedCount() {
+      const posts = parseImport(document.getElementById("reviewText").value, reviewSplitMode());
+      const over = posts.filter((p) => p.length > MAX_LEN).length;
+      const c = document.getElementById("reviewSeedCount");
+      c.textContent = over
+        ? `${posts.length} posts · ${over} over ${MAX_LEN}`
+        : `${posts.length} post${posts.length === 1 ? "" : "s"}`;
+      c.classList.toggle("over", over > 0);
+      document.getElementById("reviewSeed").disabled = posts.length === 0;
+    }
+    function updateReviewChrome() {
+      const count = state && state.review ? state.review.count : 0;
+      const badge = document.getElementById("reviewBadge");
+      if (count > 0) {
+        badge.hidden = false;
+        badge.textContent = String(count);
+      } else {
+        badge.hidden = true;
+      }
+      // Deck list (only when panel is open)
+      if (!document.getElementById("reviewPanel").hidden) {
+        renderReviewDeckList();
+      }
+      if (swipeMode) renderSwipeCard();
+    }
+    function renderReviewDeckList() {
+      const items = reviewItems();
+      const section = document.getElementById("reviewDeckSection");
+      const list = document.getElementById("reviewList");
+      if (!items.length) {
+        section.hidden = true;
+        list.innerHTML = "";
+        return;
+      }
+      section.hidden = false;
+      const over = items.filter((it) => (it.text || "").length > MAX_LEN).length;
+      document.getElementById("reviewDeckLabel").textContent =
+        `Deck · ${items.length} pending` + (over ? ` · ${over} over ${MAX_LEN}` : "");
+      list.innerHTML = "";
+      items.forEach((item, idx) => {
+        const el = document.createElement("div");
+        const n = (item.text || "").length;
+        const isOver = n > MAX_LEN;
+        el.className = "item" + (isOver ? " over" : "");
+
+        if (reviewEditingId === item.id) {
+          const ta = document.createElement("textarea");
+          ta.className = "edit-area";
+          ta.value = item.text;
+          const bar = document.createElement("div");
+          bar.className = "edit-bar";
+          const cnt = document.createElement("span");
+          cnt.className = "count";
+          const save = document.createElement("button");
+          save.className = "primary";
+          save.textContent = "Save";
+          const cancel = document.createElement("button");
+          cancel.textContent = "Cancel";
+          // Deck edits may stay over 280 (accept is what enforces the limit).
+          const setCnt = () => {
+            const len = ta.value.length;
+            cnt.textContent = `${len} / ${MAX_LEN}`;
+            cnt.classList.toggle("over", len > MAX_LEN);
+            save.disabled = ta.value.trim().length === 0;
+          };
+          ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
+          save.onclick = async () => {
+            const text = ta.value.trim();
+            if (!text) return;
+            try {
+              const res = await api("/api/review/" + item.id, {
+                method: "PATCH",
+                body: JSON.stringify({ text }),
+              });
+              if (res.ok) {
+                reviewEditingId = null;
+                state = res;
+                render();
+                toast("Updated");
+              } else toast(res.error || "Failed to update");
+            } catch (e) { /* api() */ }
+          };
+          cancel.onclick = () => { reviewEditingId = null; renderReviewDeckList(); };
+          bar.append(cnt, Object.assign(document.createElement("span"), { className: "spacer" }), cancel, save);
+          const body = document.createElement("div");
+          body.className = "body";
+          body.append(ta, bar);
+          el.appendChild(body);
+          list.appendChild(el);
+          setCnt();
+          autoGrow(ta);
+          ta.focus();
+          return;
+        }
+
+        el.innerHTML = `
+          <div class="body">
+            <div class="txt"></div>
+            <div class="meta">
+              <span>#${idx + 1}</span>
+              <span class="char-meta${isOver ? " over" : ""}">${n} / ${MAX_LEN}</span>
+              ${isOver ? '<span class="badge failed">over limit</span>' : ""}
+            </div>
+          </div>`;
+        el.querySelector(".txt").textContent = item.text;
+        const controls = document.createElement("div");
+        controls.className = "item-actions";
+        const edit = document.createElement("button");
+        edit.className = "iconbtn";
+        edit.textContent = "✎";
+        edit.title = "Edit";
+        edit.onclick = () => { reviewEditingId = item.id; renderReviewDeckList(); };
+        const del = document.createElement("button");
+        del.className = "iconbtn del";
+        del.textContent = "×";
+        del.title = "Remove from deck";
+        del.onclick = async () => {
+          const ok = await confirmDialog({
+            title: "Remove from review deck?",
+            body: item.text,
+            quote: true,
+            confirmLabel: "Remove",
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            state = await api("/api/review/" + item.id, { method: "DELETE" });
+            render();
+            toast("Removed");
+          } catch (e) { /* api() */ }
+        };
+        controls.append(edit, del);
+        el.appendChild(controls);
+        list.appendChild(el);
+      });
+    }
+
+    function openSwipeMode() {
+      swipeMode = true;
+      swipeEditing = false;
+      swipeBusy = false;
+      swipeSession = { accepted: 0, rejected: 0 };
+      document.getElementById("reviewSwipe").hidden = false;
+      document.body.style.overflow = "hidden";
+      renderSwipeCard();
+    }
+    function closeSwipeMode() {
+      swipeMode = false;
+      swipeEditing = false;
+      swipeBusy = false;
+      document.getElementById("reviewSwipe").hidden = true;
+      document.body.style.overflow = "";
+      // Keep review panel open if deck remains, so user can manage list.
+      render();
+    }
+
+    function currentSwipeItem() {
+      const items = reviewItems();
+      return items.length ? items[0] : null;
+    }
+
+    function swipeTextValue() {
+      if (swipeEditing) return document.getElementById("swipeEdit").value;
+      const item = currentSwipeItem();
+      return item ? item.text : "";
+    }
+
+    function updateSwipeMeta() {
+      const raw = swipeTextValue();
+      const n = raw.length;
+      const trimmed = raw.trim();
+      const cnt = document.getElementById("swipeCount");
+      cnt.textContent = `${n} / ${MAX_LEN}`;
+      cnt.classList.toggle("over", n > MAX_LEN);
+      const over = n > MAX_LEN || trimmed.length === 0;
+      document.getElementById("swipeWarn").hidden = !(n > MAX_LEN);
+      document.getElementById("swipeAccept").disabled = over || swipeBusy;
+      const link = n > 0 && textHasLink(raw);
+      const costEl = document.getElementById("swipeCost");
+      costEl.textContent = n === 0 ? "" : "· " + aud(link ? 0.2 : 0.015) + (link ? " · link" : "");
+      costEl.classList.toggle("link", link);
+      document.getElementById("swipeUndo").disabled = !(state && state.review && state.review.canUndo) || swipeBusy;
+      document.getElementById("swipeReject").disabled = swipeBusy;
+      document.getElementById("swipeEditBtn").disabled = swipeBusy;
+    }
+
+    function renderSwipeCard() {
+      if (!swipeMode) return;
+      const item = currentSwipeItem();
+      const card = document.getElementById("swipeCard");
+      const empty = document.getElementById("swipeEmpty");
+      const actions = document.getElementById("swipeActions");
+      const hint = document.getElementById("swipeHint");
+      const left = reviewItems().length;
+      const prog = document.getElementById("swipeProgress");
+      prog.textContent = left
+        ? `${left} left · ✓${swipeSession.accepted} · ✕${swipeSession.rejected}`
+        : `Done · ✓${swipeSession.accepted} · ✕${swipeSession.rejected}`;
+
+      if (!item) {
+        card.hidden = true;
+        empty.hidden = false;
+        actions.hidden = true;
+        hint.hidden = true;
+        document.getElementById("swipeUndo").disabled = !(state && state.review && state.review.canUndo);
+        return;
+      }
+      empty.hidden = true;
+      actions.hidden = false;
+      hint.hidden = false;
+      card.hidden = false;
+      card.classList.remove("out-left", "out-right", "flash-ok", "flash-no");
+      card.style.transform = "";
+      card.style.opacity = "";
+
+      const textEl = document.getElementById("swipeText");
+      const editEl = document.getElementById("swipeEdit");
+      if (swipeEditing) {
+        textEl.hidden = true;
+        editEl.hidden = false;
+        if (document.activeElement !== editEl) {
+          editEl.value = item.text;
+          autoGrow(editEl);
+        }
+        document.getElementById("swipeEditBtn").textContent = "✎";
+        document.getElementById("swipeEditBtn").title = "Editing…";
+      } else {
+        textEl.hidden = false;
+        editEl.hidden = true;
+        textEl.textContent = item.text;
+        document.getElementById("swipeEditBtn").textContent = "✎";
+        document.getElementById("swipeEditBtn").title = "Edit (E)";
+      }
+      updateSwipeMeta();
+    }
+
+    function animateCard(dir) {
+      return new Promise((resolve) => {
+        const card = document.getElementById("swipeCard");
+        card.classList.add(dir === "left" ? "flash-no" : "flash-ok");
+        // Force reflow then slide out.
+        void card.offsetWidth;
+        card.classList.add(dir === "left" ? "out-left" : "out-right");
+        setTimeout(resolve, 220);
+      });
+    }
+
+    async function swipeAccept() {
+      if (swipeBusy) return;
+      const item = currentSwipeItem();
+      if (!item) return;
+      const text = swipeTextValue().trim();
+      if (!text || text.length > MAX_LEN) {
+        toast(text.length > MAX_LEN ? `Too long (${text.length}/${MAX_LEN})` : "Empty post");
+        return;
+      }
+      swipeBusy = true;
+      updateSwipeMeta();
+      try {
+        const res = await api("/api/review/" + item.id + "/accept", {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) {
+          await animateCard("right");
+          swipeEditing = false;
+          swipeSession.accepted++;
+          state = res;
+          renderSwipeCard();
+          // Keep main state in sync without leaving swipe.
+          updateReviewChrome();
+        } else {
+          toast(res.error || "Couldn't queue");
+        }
+      } catch (e) { /* api() */ }
+      finally {
+        swipeBusy = false;
+        updateSwipeMeta();
+      }
+    }
+
+    async function swipeReject() {
+      if (swipeBusy) return;
+      const item = currentSwipeItem();
+      if (!item) return;
+      // If editing, reject discards the card (not just the edit).
+      swipeBusy = true;
+      updateSwipeMeta();
+      try {
+        const res = await api("/api/review/" + item.id + "/reject", { method: "POST" });
+        if (res.ok) {
+          await animateCard("left");
+          swipeEditing = false;
+          swipeSession.rejected++;
+          state = res;
+          renderSwipeCard();
+          updateReviewChrome();
+        } else {
+          toast(res.error || "Couldn't reject");
+        }
+      } catch (e) { /* api() */ }
+      finally {
+        swipeBusy = false;
+        updateSwipeMeta();
+      }
+    }
+
+    async function swipeUndo() {
+      if (swipeBusy) return;
+      if (!(state && state.review && state.review.canUndo)) return;
+      swipeBusy = true;
+      updateSwipeMeta();
+      try {
+        const res = await api("/api/review/undo", { method: "POST" });
+        if (res.ok) {
+          // Best-effort session counter adjust (we don't know which way).
+          swipeEditing = false;
+          state = res;
+          renderSwipeCard();
+          updateReviewChrome();
+          toast("Undone");
+        } else {
+          toast(res.error || "Can't undo");
+          if (state) {
+            // Clear stale canUndo if server says no.
+            state = await api("/api/state");
+            renderSwipeCard();
+          }
+        }
+      } catch (e) { /* api() */ }
+      finally {
+        swipeBusy = false;
+        updateSwipeMeta();
+      }
+    }
+
+    function toggleSwipeEdit() {
+      if (swipeBusy || !currentSwipeItem()) return;
+      if (swipeEditing) {
+        // Leaving edit keeps the draft on the textarea until accept/reject;
+        // snap back to saved item text if they cancel by toggling off without accept.
+        swipeEditing = false;
+        renderSwipeCard();
+      } else {
+        swipeEditing = true;
+        renderSwipeCard();
+        const editEl = document.getElementById("swipeEdit");
+        editEl.focus();
+        autoGrow(editEl);
+      }
+    }
+
+    async function seedReviewDeck() {
+      const posts = parseImport(document.getElementById("reviewText").value, reviewSplitMode());
+      if (!posts.length) return;
+      const existing = reviewItems().length;
+      let mode = "replace";
+      if (existing > 0) {
+        // Append is the safe default; opt into Replace with a second confirm.
+        const wantAppend = await confirmDialog({
+          title: "Deck already has " + existing + " posts",
+          body: "Append these " + posts.length + " posts to the end of the deck?\n\nChoose Cancel if you want to replace the deck instead.",
+          confirmLabel: "Append",
+          cancelLabel: "Replace…",
+        });
+        if (wantAppend) {
+          mode = "append";
+        } else {
+          const doReplace = await confirmDialog({
+            title: "Replace the deck?",
+            body: "This discards all " + existing + " pending review posts and loads the new paste instead.",
+            confirmLabel: "Replace",
+            danger: true,
+          });
+          if (!doReplace) return; // cancelled both → abort seed
+          mode = "replace";
+        }
+      }
+      const btn = document.getElementById("reviewSeed");
+      btn.disabled = true;
+      try {
+        const res = await api("/api/review", {
+          method: "POST",
+          body: JSON.stringify({ texts: posts, mode }),
+        });
+        if (res.ok) {
+          state = res;
+          document.getElementById("reviewText").value = "";
+          updateReviewSeedCount();
+          render();
+          let msg = `Added ${res.added} to review`;
+          if (res.overCount) msg += ` · ${res.overCount} over ${MAX_LEN}`;
+          if (res.skippedEmpty) msg += ` · skipped ${res.skippedEmpty} empty`;
+          toast(msg);
+          if (res.review && res.review.count > 0) openSwipeMode();
+        } else {
+          toast(res.error || "Failed to seed review");
+        }
+      } finally {
+        updateReviewSeedCount();
+      }
+    }
+
+    document.getElementById("reviewToggle").addEventListener("click", () => {
+      document.getElementById("importPanel").hidden = true;
+      const p = document.getElementById("reviewPanel");
+      p.hidden = !p.hidden;
+      if (!p.hidden) {
+        updateReviewSeedCount();
+        renderReviewDeckList();
+        document.getElementById("reviewText").focus();
+      }
+    });
+    document.getElementById("reviewText").addEventListener("input", updateReviewSeedCount);
+    document.querySelectorAll('input[name="reviewSplit"]').forEach((r) =>
+      r.addEventListener("change", updateReviewSeedCount)
+    );
+    document.getElementById("reviewFile").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        document.getElementById("reviewText").value = String(reader.result || "");
+        updateReviewSeedCount();
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    });
+    document.getElementById("reviewCancel").addEventListener("click", () => {
+      document.getElementById("reviewText").value = "";
+      document.getElementById("reviewPanel").hidden = true;
+      updateReviewSeedCount();
+    });
+    document.getElementById("reviewSeed").addEventListener("click", () => seedReviewDeck());
+    document.getElementById("reviewContinue").addEventListener("click", () => {
+      if (!reviewItems().length) {
+        toast("Deck is empty — paste posts above");
+        return;
+      }
+      openSwipeMode();
+    });
+    document.getElementById("reviewEmpty").addEventListener("click", async () => {
+      const n = reviewItems().length;
+      if (!n) return;
+      const ok = await confirmDialog({
+        title: "Empty the review deck?",
+        body: "This permanently discards all " + n + " pending posts in the deck. Already-queued posts are not affected.",
+        confirmLabel: "Empty deck",
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        state = await api("/api/review", { method: "DELETE" });
+        reviewEditingId = null;
+        render();
+        toast("Deck emptied");
+      } catch (e) { /* api() */ }
+    });
+
+    document.getElementById("swipeClose").addEventListener("click", closeSwipeMode);
+    document.getElementById("swipeEmptyDone").addEventListener("click", closeSwipeMode);
+    document.getElementById("swipeAccept").addEventListener("click", () => swipeAccept());
+    document.getElementById("swipeReject").addEventListener("click", () => swipeReject());
+    document.getElementById("swipeUndo").addEventListener("click", () => swipeUndo());
+    document.getElementById("swipeEditBtn").addEventListener("click", () => toggleSwipeEdit());
+    document.getElementById("swipeEdit").addEventListener("input", () => {
+      autoGrow(document.getElementById("swipeEdit"));
+      updateSwipeMeta();
+    });
+
+    // Keyboard while swipe mode is open (skip when typing in the edit box except Esc).
+    document.addEventListener("keydown", (e) => {
+      if (!swipeMode) return;
+      const inEdit = document.activeElement === document.getElementById("swipeEdit");
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (inEdit && swipeEditing) {
+          swipeEditing = false;
+          renderSwipeCard();
+        } else {
+          closeSwipeMode();
+        }
+        return;
+      }
+      if (inEdit) return; // let typing work; accept/reject via buttons
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "e" || e.key === "E" || e.key === "z" || e.key === "Z") {
+        e.preventDefault();
+      }
+      if (e.key === "ArrowRight") swipeAccept();
+      else if (e.key === "ArrowLeft") swipeReject();
+      else if (e.key === "e" || e.key === "E") toggleSwipeEdit();
+      else if (e.key === "z" || e.key === "Z") swipeUndo();
+    });
+
+    // Touch swipe on the card.
+    (function setupTouchSwipe() {
+      const card = document.getElementById("swipeCard");
+      let startX = 0, startY = 0, dragging = false, dx = 0;
+      card.addEventListener("touchstart", (e) => {
+        if (swipeBusy || swipeEditing || !currentSwipeItem()) return;
+        const t = e.changedTouches[0];
+        startX = t.clientX; startY = t.clientY; dragging = true; dx = 0;
+        card.style.transition = "none";
+      }, { passive: true });
+      card.addEventListener("touchmove", (e) => {
+        if (!dragging) return;
+        const t = e.changedTouches[0];
+        dx = t.clientX - startX;
+        const dy = t.clientY - startY;
+        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 24) {
+          // vertical scroll intent — cancel horizontal drag
+          dragging = false;
+          card.style.transform = "";
+          card.style.transition = "";
+          return;
+        }
+        const rot = dx / 40;
+        card.style.transform = `translateX(${dx}px) rotate(${rot}deg)`;
+        card.style.opacity = String(Math.max(0.4, 1 - Math.abs(dx) / 400));
+      }, { passive: true });
+      card.addEventListener("touchend", () => {
+        if (!dragging) return;
+        dragging = false;
+        card.style.transition = "";
+        const threshold = 80;
+        if (dx > threshold) {
+          card.style.transform = "";
+          card.style.opacity = "";
+          swipeAccept();
+        } else if (dx < -threshold) {
+          card.style.transform = "";
+          card.style.opacity = "";
+          swipeReject();
+        } else {
+          card.style.transform = "";
+          card.style.opacity = "";
+        }
+        dx = 0;
+      });
+    })();
+
     // ---- Login / lock ----
     document.getElementById("lockBtn").addEventListener("click", () => {
       localStorage.removeItem("xqueue_secret");
@@ -995,6 +1723,7 @@
       state = null;
       historyExtra = [];
       queueVisible = 50;
+      if (swipeMode) closeSwipeMode();
       showLogin();
     });
 

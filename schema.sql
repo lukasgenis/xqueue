@@ -36,3 +36,27 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_ip_ts ON auth_attempts (ip, ts);
+
+-- Review deck: pending posts awaiting accept/reject triage (Tinder-style).
+-- Accept queues immediately; reject discards. Over-280 items may sit here
+-- (shown with a warning) but cannot be accepted until edited under the limit.
+CREATE TABLE IF NOT EXISTS review_items (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  text       TEXT    NOT NULL,
+  position   INTEGER NOT NULL,                   -- import order (lower = sooner)
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_position ON review_items (position, id);
+
+-- Single-row undo slot for the most recent accept or reject in Review.
+CREATE TABLE IF NOT EXISTS review_undo (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  action     TEXT,                               -- 'accept' | 'reject' | NULL
+  text       TEXT,
+  queue_id   INTEGER,                            -- set on accept (for undo)
+  position   INTEGER,
+  created_at INTEGER
+);
+
+INSERT OR IGNORE INTO review_undo (id) VALUES (1);

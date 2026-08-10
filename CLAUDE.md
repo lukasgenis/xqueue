@@ -54,6 +54,11 @@ assets** (NOT Pages) + **D1** + an hourly **cron**. Live at
   safety throttle enforced in the scheduler and both post-now paths.
 - **Mobile**: 16px inputs (iOS zoom), tap-to-reveal per-post actions, keyboard-
   aware edit box. Test layout changes at ≤520px.
+- **Review deck**: tables `review_items` + `review_undo` (single-row undo). Created
+  lazily via `ensureReviewSchema()` on `/api/state` so deploys work without a
+  manual migration; `schema.sql` still has the canonical DDL. Accept inserts into
+  `queue` immediately; reject deletes; over-280 may sit in the deck but accept
+  is rejected server-side. Don't drop the 280 cap without a product decision.
 
 ## Verifying changes
 

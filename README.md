@@ -21,6 +21,11 @@ Mac-mini dependency, always on.
 - **Bulk import** — paste many posts or upload a `.txt`/`.md`/`.csv`, split by
   blank line (multi-line posts) or one-per-line. Live count, skips over-280 /
   empty entries with a report.
+- **Review** — Tinder-style triage for big dumps. Paste the same way as bulk
+  import; swipe right (or →) to queue immediately, left (or ←) to reject. Edit
+  the front card when it’s almost right. One-step undo (survives refresh). Deck
+  is stored in D1 so you can leave and continue. Over-280 posts stay in the deck
+  with a warning and can only be rejected or edited down, not accepted.
 - **Cost tracking (AUD)** — live per-post cost estimate in the composer (flags
   links, which are 13× pricier), per-item costs, a "cost to drain the queue"
   total, and a running "spent so far" total. USD→AUD via a cron-cached live rate.
@@ -126,6 +131,14 @@ top item** (`POST /api/post-now`) both still respect the daily cap.
 | GET | `/api/state` | Queue, history, interval, counts, costs, FX rate |
 | POST | `/api/queue` | Add one post `{text}` |
 | POST | `/api/queue/bulk` | Add many `{texts:[]}` |
+| GET | `/api/review` | Deck state (also embedded in `/api/state` as `review`) |
+| POST | `/api/review` | Seed deck `{texts:[], mode:"replace"\|"append"}` |
+| DELETE | `/api/review` | Empty the whole deck |
+| PATCH | `/api/review/:id` | Edit a deck item `{text}` |
+| DELETE | `/api/review/:id` | Remove one deck item |
+| POST | `/api/review/:id/accept` | Queue this item (optional `{text}` override) |
+| POST | `/api/review/:id/reject` | Discard this item |
+| POST | `/api/review/undo` | Undo last accept or reject |
 | PATCH | `/api/queue/:id` | Edit a queued post `{text}` |
 | POST | `/api/queue/:id/move` | Reorder `{dir:"up"\|"down"}` |
 | POST | `/api/queue/:id/post-now` | Post that specific queued item now |

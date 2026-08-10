@@ -174,6 +174,54 @@ async function handleApi(request, env, ctx, url) {
       return await postTextNow(env, String(body.text || ""));
     }
 
+    // ---- Review deck (Tinder-style triage before / instead of bulk import) ----
+    if (pathname === "/api/review" && method === "GET") {
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    // Seed the deck. Body: { texts: string[], mode: "replace" | "append" }.
+    // Empty lines are dropped; over-280 lines are kept (can't accept until edited).
+    if (pathname === "/api/review" && method === "POST") {
+      const body = await request.json();
+      return await seedReview(env, Array.isArray(body.texts) ? body.texts : [], body.mode === "append" ? "append" : "replace");
+    }
+
+    // Empty the whole deck (+ clear undo).
+    if (pathname === "/api/review" && method === "DELETE") {
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM review_items"),
+        env.DB.prepare("UPDATE review_undo SET action = NULL, text = NULL, queue_id = NULL, position = NULL, created_at = NULL WHERE id = 1"),
+      ]);
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    // Undo the single most recent accept or reject.
+    if (pathname === "/api/review/undo" && method === "POST") {
+      return await undoReview(env);
+    }
+
+    const revItem = pathname.match(/^\/api\/review\/(\d+)$/);
+    if (revItem && method === "PATCH") {
+      const body = await request.json();
+      return await editReviewItem(env, Number(revItem[1]), String(body.text || ""));
+    }
+    if (revItem && method === "DELETE") {
+      await env.DB.prepare("DELETE FROM review_items WHERE id = ?1").bind(Number(revItem[1])).run();
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    const revAccept = pathname.match(/^\/api\/review\/(\d+)\/accept$/);
+    if (revAccept && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const override = body && body.text != null ? String(body.text) : null;
+      return await acceptReviewItem(env, Number(revAccept[1]), override);
+    }
+
+    const revReject = pathname.match(/^\/api\/review\/(\d+)\/reject$/);
+    if (revReject && method === "POST") {
+      return await rejectReviewItem(env, Number(revReject[1]));
+    }
+
     return json({ ok: false, error: "Not found." }, 404);
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 500);
@@ -332,6 +380,8 @@ async function postTextNow(env, text) {
 // post), recent history, current interval, 24h usage, and when the next post is
 // eligible to go out.
 async function getState(env) {
+  // Ensure review tables exist so /api/state always includes a real deck summary.
+  await ensureReviewSchema(env);
   const settings = await getSettings(env);
 
   const queued = (
@@ -383,6 +433,8 @@ async function getState(env) {
     ? Math.max(now, (settings.last_posted_at || 0) + intervalMs)
     : null;
 
+  const review = await getReviewState(env);
+
   return {
     interval_hours: settings.interval_hours,
     last_posted_at: settings.last_posted_at,
@@ -396,7 +448,271 @@ async function getState(env) {
     queue_estimate_usd: queueEstimateUsd,
     total_spent_usd: totalSpentUsd,
     spent_posts: spentPosts,
+    review,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Review deck
+// ---------------------------------------------------------------------------
+
+// Per-isolate flag so we don't re-run CREATE IF NOT EXISTS on every /api/state.
+let reviewSchemaReady = false;
+
+async function ensureReviewSchema(env) {
+  if (reviewSchemaReady) return;
+  // Idempotent — safe if schema.sql was already applied.
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS review_items (" +
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+        "text TEXT NOT NULL, " +
+        "position INTEGER NOT NULL, " +
+        "created_at INTEGER NOT NULL)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS review_undo (" +
+        "id INTEGER PRIMARY KEY CHECK (id = 1), " +
+        "action TEXT, " +
+        "text TEXT, " +
+        "queue_id INTEGER, " +
+        "position INTEGER, " +
+        "created_at INTEGER)"
+    ),
+    env.DB.prepare("INSERT OR IGNORE INTO review_undo (id) VALUES (1)"),
+  ]);
+  try {
+    await env.DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_review_position ON review_items (position, id)"
+    ).run();
+  } catch (_) { /* already exists */ }
+  reviewSchemaReady = true;
+}
+
+async function getReviewState(env) {
+  try {
+    const items = (
+      await env.DB.prepare(
+        "SELECT id, text, position, created_at FROM review_items ORDER BY position ASC, id ASC"
+      ).all()
+    ).results;
+    const undo = await env.DB.prepare(
+      "SELECT action, text, queue_id, position, created_at FROM review_undo WHERE id = 1"
+    ).first();
+    let overCount = 0;
+    for (const it of items) {
+      if (String(it.text || "").length > MAX_TWEET_LEN) overCount++;
+    }
+    return {
+      items: items || [],
+      count: (items || []).length,
+      overCount,
+      canUndo: !!(undo && undo.action),
+    };
+  } catch (_) {
+    // Tables not created yet — treat as empty deck.
+    return { items: [], count: 0, overCount: 0, canUndo: false };
+  }
+}
+
+async function seedReview(env, texts, mode) {
+  const clean = [];
+  let skippedEmpty = 0;
+  let overCount = 0;
+  for (let t of texts) {
+    t = String(t == null ? "" : t).trim();
+    if (!t) {
+      skippedEmpty++;
+      continue;
+    }
+    if (t.length > MAX_TWEET_LEN) overCount++;
+    clean.push(t);
+  }
+
+  if (mode === "replace") {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM review_items"),
+      env.DB.prepare(
+        "UPDATE review_undo SET action = NULL, text = NULL, queue_id = NULL, position = NULL, created_at = NULL WHERE id = 1"
+      ),
+    ]);
+  }
+
+  if (clean.length) {
+    let startPos = 0;
+    if (mode === "append") {
+      const row = await env.DB.prepare(
+        "SELECT COALESCE(MAX(position), -1) AS m FROM review_items"
+      ).first();
+      startPos = (row && typeof row.m === "number" ? row.m : -1) + 1;
+    }
+    const now = Date.now();
+    // D1 batch has a practical size limit; chunk inserts.
+    const CHUNK = 50;
+    for (let i = 0; i < clean.length; i += CHUNK) {
+      const slice = clean.slice(i, i + CHUNK);
+      await env.DB.batch(
+        slice.map((t, j) =>
+          env.DB.prepare(
+            "INSERT INTO review_items (text, position, created_at) VALUES (?1, ?2, ?3)"
+          ).bind(t, startPos + i + j, now + i + j)
+        )
+      );
+    }
+  }
+
+  return json({
+    ok: true,
+    added: clean.length,
+    skippedEmpty,
+    overCount,
+    ...(await getState(env)),
+  });
+}
+
+async function editReviewItem(env, id, text) {
+  // Deck may hold over-280 drafts (import or mid-edit). Empty is not allowed.
+  text = String(text == null ? "" : text);
+  // Preserve intentional whitespace only at ends via trim for emptiness check,
+  // but store the trimmed form so accept validation is consistent.
+  text = text.trim();
+  if (!text) return json({ ok: false, error: "Empty post." }, 400);
+  const res = await env.DB.prepare(
+    "UPDATE review_items SET text = ?1 WHERE id = ?2"
+  )
+    .bind(text, id)
+    .run();
+  if (!res.meta || res.meta.changes === 0) {
+    return json({ ok: false, error: "Review item not found." }, 404);
+  }
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+async function acceptReviewItem(env, id, overrideText) {
+  const item = await env.DB.prepare(
+    "SELECT id, text, position FROM review_items WHERE id = ?1"
+  )
+    .bind(id)
+    .first();
+  if (!item) return json({ ok: false, error: "Review item not found." }, 404);
+
+  let text = overrideText != null ? String(overrideText).trim() : String(item.text || "").trim();
+  if (!text) return json({ ok: false, error: "Empty post." }, 400);
+  if (text.length > MAX_TWEET_LEN) {
+    return json(
+      { ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}). Edit it down first.` },
+      400
+    );
+  }
+
+  // If the client sent a final edit, persist it on the item first (in case accept fails later).
+  if (overrideText != null && text !== item.text) {
+    await env.DB.prepare("UPDATE review_items SET text = ?1 WHERE id = ?2")
+      .bind(text, id)
+      .run();
+  }
+
+  const now = Date.now();
+  const ins = await env.DB.prepare(
+    "INSERT INTO queue (text, status, created_at) VALUES (?1, 'queued', ?2)"
+  )
+    .bind(text, now)
+    .run();
+  // D1 returns last_row_id on meta for inserts; fall back to a lookup if missing.
+  let queueId =
+    ins && ins.meta
+      ? ins.meta.last_row_id != null
+        ? ins.meta.last_row_id
+        : ins.meta.lastRowId
+      : null;
+  if (queueId == null) {
+    const found = await env.DB.prepare(
+      "SELECT id FROM queue WHERE status = 'queued' AND text = ?1 AND created_at = ?2 LIMIT 1"
+    )
+      .bind(text, now)
+      .first();
+    queueId = found ? found.id : null;
+  }
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM review_items WHERE id = ?1").bind(id),
+    env.DB.prepare(
+      "UPDATE review_undo SET action = ?1, text = ?2, queue_id = ?3, position = ?4, created_at = ?5 WHERE id = 1"
+    ).bind("accept", text, queueId != null ? queueId : null, item.position, now),
+  ]);
+
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+async function rejectReviewItem(env, id) {
+  const item = await env.DB.prepare(
+    "SELECT id, text, position FROM review_items WHERE id = ?1"
+  )
+    .bind(id)
+    .first();
+  if (!item) return json({ ok: false, error: "Review item not found." }, 404);
+
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM review_items WHERE id = ?1").bind(id),
+    env.DB.prepare(
+      "UPDATE review_undo SET action = ?1, text = ?2, queue_id = NULL, position = ?3, created_at = ?4 WHERE id = 1"
+    ).bind("reject", item.text, item.position, now),
+  ]);
+
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+async function undoReview(env) {
+  const undo = await env.DB.prepare(
+    "SELECT action, text, queue_id, position, created_at FROM review_undo WHERE id = 1"
+  ).first();
+  if (!undo || !undo.action) {
+    return json({ ok: false, error: "Nothing to undo." }, 400);
+  }
+
+  const now = Date.now();
+
+  if (undo.action === "accept") {
+    // Only undo if the queued row is still waiting (not posted/deleted).
+    if (undo.queue_id != null) {
+      const row = await env.DB.prepare(
+        "SELECT id FROM queue WHERE id = ?1 AND status = 'queued'"
+      )
+        .bind(undo.queue_id)
+        .first();
+      if (!row) {
+        await env.DB.prepare(
+          "UPDATE review_undo SET action = NULL, text = NULL, queue_id = NULL, position = NULL, created_at = NULL WHERE id = 1"
+        ).run();
+        return json(
+          { ok: false, error: "Already posted or removed — can't undo." },
+          409
+        );
+      }
+      await env.DB.prepare("DELETE FROM queue WHERE id = ?1 AND status = 'queued'")
+        .bind(undo.queue_id)
+        .run();
+    }
+  }
+
+  // Put the card back at the front of the deck so it's shown again immediately.
+  const minRow = await env.DB.prepare(
+    "SELECT MIN(position) AS m FROM review_items"
+  ).first();
+  const frontPos =
+    minRow && minRow.m != null ? Number(minRow.m) - 1 : undo.position != null ? undo.position : 0;
+
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO review_items (text, position, created_at) VALUES (?1, ?2, ?3)"
+    ).bind(undo.text || "", frontPos, now),
+    env.DB.prepare(
+      "UPDATE review_undo SET action = NULL, text = NULL, queue_id = NULL, position = NULL, created_at = NULL WHERE id = 1"
+    ),
+  ]);
+
+  return json({ ok: true, ...(await getState(env)) });
 }
 
 // ---------------------------------------------------------------------------
