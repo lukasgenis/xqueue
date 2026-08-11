@@ -808,8 +808,11 @@ async function coachSpark(env, body) {
     "- single_emotion: boolean",
     "- abstract_flags: string[] (abstract words/phrases you noticed, max 8, may be empty)",
     "- bone: integer 0-10 (specificity + honesty + single feeling; 10 = bone-deep)",
-    "- question: string — ONE specific deepening question about THIS draft (max 22 words). Must be original and concrete. Never generic.",
-    "- cuts: string[] — EXACTLY 1 or 2 alternate tighter lines in the author's voice (each under 280 chars). These are suggestions they can tap. Required.",
+    "- question: string — ONE specific deepening question about THIS draft (max 22 words). Must be original and concrete. Never generic. (questions may use normal capitalization and a ?)",
+    "- cuts: string[] — EXACTLY 1 or 2 alternate tighter post-ready lines (each under 280 chars). Required. House style for cuts ONLY:",
+    "  · ALWAYS all lowercase (no capitals, even for names/brands, unless a URL requires it)",
+    "  · NEVER end a cut with a full stop/period. Mid-line periods between sentences are fine; ? and ! are fine when they carry tone. Ellipsis (...) is fine",
+    "  · NEVER use em dashes (—) or en dashes (–); use a comma, period, or hyphen (-) instead",
     "- note: string — one short coach sentence (no engagement language)",
   ].join("\n");
 
@@ -986,8 +989,11 @@ function parseCoachJson(raw, lint) {
   } else if (Array.isArray(o.suggestions)) {
     cuts = o.suggestions.map((x) => String(x || "").trim()).filter(Boolean);
   }
+  // Enforce the same house style as Review AI drafts: lowercase, no terminal period.
   cuts = cuts
+    .map((c) => normalizeDraftStyle(c))
     .map((c) => (c.length > MAX_TWEET_LEN ? c.slice(0, MAX_TWEET_LEN).trim() : c))
+    .map((c) => stripTrailingPeriod(c)) // re-strip if length slice reintroduced edge cases
     .filter(Boolean)
     .slice(0, 2);
 
