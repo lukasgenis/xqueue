@@ -1627,9 +1627,37 @@
           b.textContent = line;
           b.title = "Use this line";
           b.onclick = () => {
-            document.getElementById("text").value = line;
-            updateCount();
-            document.getElementById("text").focus();
+            const ta = document.getElementById("text");
+            ta.value = line;
+            // Mistral's own cut: treat as finished (high bone), do not re-score into a rewrite loop.
+            if (coachTimer) clearTimeout(coachTimer);
+            coachReqId++; // cancel any in-flight coach for the previous draft
+            lastCoachKey = line.trim();
+            const applied = {
+              honesty: "raw",
+              hook_type: coach.hook_type || "observation",
+              abstract_flags: [],
+              bone: 9,
+              question: "Ready to ship. Edit if you want another pass.",
+              cuts: [],
+              note: "suggestion applied · high-bone cut from coach",
+              source: "ai",
+            };
+            showCoach(applied, "coach · applied");
+            // Update count/cost without scheduleCoach (avoid re-coaching the cut)
+            const n = ta.value.length;
+            const c = document.getElementById("count");
+            c.textContent = `${n} / ${MAX_LEN}`;
+            c.classList.toggle("over", n > MAX_LEN);
+            const shipOk = n > 0 && n <= MAX_LEN;
+            document.getElementById("add").disabled = !shipOk;
+            document.getElementById("postNow").disabled = !shipOk;
+            const costEl = document.getElementById("costEst");
+            const link = n > 0 && textHasLink(ta.value);
+            const usd = link ? 0.2 : 0.015;
+            costEl.textContent = n === 0 ? "" : "· " + aud(usd) + (link ? " · link" : "");
+            costEl.classList.toggle("link", link);
+            ta.focus();
           };
           cuts.appendChild(b);
         });
