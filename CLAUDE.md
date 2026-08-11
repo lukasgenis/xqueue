@@ -21,10 +21,10 @@ assets** (NOT Pages) + **D1** + an hourly **cron**. Live at
 
 ## Deploy / workflow
 
-- **Auto-deploy is on**: pushing to `main` on GitHub (`lukasgenis/xqueue`, private)
-  triggers a Cloudflare build that runs `wrangler deploy`. So the normal loop is:
-  edit → commit → push → ~30–60s later it's live. `npx wrangler deploy` still
-  works for a manual push.
+- **Preferred (always):** edit → **commit** → **push** to `main`. Auto-deploy is on:
+  GitHub (`lukasgenis/xqueue`, private) triggers Cloudflare → `wrangler deploy`.
+  Live ~30–60s after push. Do **not** run `npx wrangler deploy` unless the user
+  explicitly asks; git push is the source of truth for versions and prod.
 - After pushing, verify by polling the live URL for a marker string, e.g.
   `curl -s https://xqueue.lukas-genis.workers.dev/ | grep <new-code-marker>`, or
   hit a changed endpoint. Static assets can lag the worker by a few seconds.
