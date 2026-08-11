@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS queue (
   tweet_id   TEXT,                               -- X tweet id once posted
   created_at INTEGER NOT NULL,                   -- epoch ms, added-to-queue time
   posted_at  INTEGER,                            -- epoch ms, when it actually posted
-  cost_usd   REAL                                -- USD charged at post time (X pay-per-use)
+  cost_usd   REAL,                               -- USD charged at post time (X pay-per-use)
+  kind       TEXT                                -- null | 'lightning' (personal feeling-post tag)
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue (status, created_at);
@@ -76,12 +77,4 @@ CREATE TABLE IF NOT EXISTS sparks (
 
 CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks (status, updated_at);
 
--- Workers AI Neuron usage tracked per UTC day (xqueue AI calls only).
-CREATE TABLE IF NOT EXISTS ai_usage (
-  day                TEXT PRIMARY KEY,
-  neurons            REAL    NOT NULL DEFAULT 0,
-  calls              INTEGER NOT NULL DEFAULT 0,
-  prompt_tokens      INTEGER NOT NULL DEFAULT 0,
-  completion_tokens  INTEGER NOT NULL DEFAULT 0,
-  updated_at         INTEGER NOT NULL
-);
+

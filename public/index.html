@@ -44,7 +44,7 @@
       --ok: #2ecc71;
     }
     * { box-sizing: border-box; }
-    /* The [hidden] attribute must always win — author display rules (flex/grid)
+    /* The [hidden] attribute must always win - author display rules (flex/grid)
        would otherwise override the UA [hidden]{display:none} and leave elements
        stuck visible. This guards every hideable element (login, modal, lists). */
     [hidden] { display: none !important; }
@@ -100,7 +100,7 @@
       margin-bottom: 6px;
     }
     .composer-head .ctl-label { margin: 0; }
-    /* Custom coach picker — same materials as confirm modal (panel, border, shadow). */
+    /* Custom coach picker - same materials as confirm modal (panel, border, shadow). */
     .coach-mode {
       position: relative;
       display: flex; align-items: center; gap: 8px;
@@ -161,28 +161,54 @@
       font: inherit; outline: none;
     }
     .composer-bottom { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-    /* All four action buttons share the same metrics so Vault/Lightning match Post now/Queue. */
-    .composer-bottom > button {
+    .composer-bottom .meta-row {
+      display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0;
+    }
+    .composer-actions {
+      display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+      justify-content: flex-end; min-width: 0;
+    }
+    .composer-actions > button {
       padding: 6px 14px;
       font-size: 16px;
       line-height: 1.25;
       min-height: 34px;
       box-sizing: border-box;
     }
-    .composer-bottom > button.btn-secondary {
-      /* Override global .btn-secondary (8px/14px) so it matches Queue. */
+    .composer-actions > button.btn-secondary {
       padding: 6px 14px;
       font-size: 16px;
+    }
+    /* Compact lightning tag toggle (not a third full action). */
+    button.lightning-toggle {
+      flex: 0 0 auto;
+      min-width: 40px;
+      padding: 6px 10px;
+      font-size: 16px;
+      line-height: 1.25;
+      min-height: 34px;
+      border-color: #6b5a1e;
+      color: #8a7a40;
+      background: transparent;
+    }
+    button.lightning-toggle:hover:not(:disabled) {
+      border-color: #c9a227; color: #f0d060;
+    }
+    button.lightning-toggle.active {
+      border-color: #c9a227;
+      color: #ffe08a;
+      background: #1c1a12;
+      box-shadow: 0 0 0 1px #6b5a1e inset;
     }
     .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .count.over { color: var(--danger); }
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
-    button.lightning {
-      border-color: #6b5a1e; color: #f0d060; background: #1c1a12;
+    .badge.lightning {
+      color: #f0d060; border-color: #6b5a1e; background: #1c1a12;
+      font-size: 11px; letter-spacing: 0; text-transform: none; padding: 0 6px;
     }
-    button.lightning:hover:not(:disabled) { border-color: #c9a227; color: #ffe08a; }
-    button.vault-btn .badge-count { margin-left: 4px; }
+    .kind-bolt { margin-right: 2px; }
     .coach-panel {
       margin-top: 10px; padding: 10px 12px;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
@@ -236,38 +262,30 @@
     }
     .coach-status { font-size: 11px; color: var(--muted); margin-top: 8px; }
     .coach-status.err { color: var(--danger); }
-    .vault-panel {
-      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-      padding: 12px; margin-top: 8px;
-    }
-    .vault-panel[hidden] { display: none !important; }
-    .vault-head {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      margin-bottom: 10px; flex-wrap: wrap;
-    }
-    .vault-head .label {
-      font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
-    }
-    .vault-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
-    .item.spark .badge.cooling { color: #e0b84a; border-color: #5c4a2a; }
-    .item.spark .badge.private { color: var(--muted); }
-    .item.spark .badge.draft { color: var(--accent); border-color: var(--accent-dim); }
     @media (max-width: 520px) {
-      .composer-bottom > button,
-      .composer-bottom > button.btn-secondary {
-        padding: 8px 12px;
-        font-size: 14px;
-        min-height: 38px;
+      /* Count/cost on first row; actions full-width on second so two buttons + bolt fit. */
+      .composer-bottom { flex-direction: column; align-items: stretch; gap: 10px; }
+      .composer-bottom .meta-row {
+        display: flex; align-items: center; gap: 8px; width: 100%;
       }
-      .item.spark { flex-direction: column; align-items: stretch; }
-      .item.spark .body { width: 100%; cursor: pointer; }
-      .item.spark .item-actions { display: none; }
-      .item.spark.expanded .item-actions {
-        display: flex; width: 100%; gap: 8px; flex-wrap: wrap;
-        margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+      .composer-actions {
+        width: 100%;
+        justify-content: stretch;
       }
-      .item.spark.expanded .item-actions button {
-        flex: 1; min-width: 0; padding: 10px 8px; font-size: 13px;
+      .composer-actions > button.btn-secondary,
+      .composer-actions > button.primary {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 10px 12px;
+        font-size: 15px;
+        min-height: 42px;
+      }
+      button.lightning-toggle {
+        flex: 0 0 46px;
+        min-width: 46px;
+        min-height: 42px;
+        padding: 10px 8px;
+        font-size: 18px;
       }
     }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
@@ -580,7 +598,7 @@
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
     .empty { color: var(--muted); font-size: 14px; padding: 24px 4px; text-align: center; }
-    /* "Load more" tile — same footprint as a post, dashed blue outline that
+    /* "Load more" tile - same footprint as a post, dashed blue outline that
        (with its text) brightens to the accent on hover. */
     .load-more {
       display: flex; align-items: center; justify-content: center;
@@ -660,7 +678,7 @@
           <span class="coach-mode-label">Coach</span>
           <button type="button" class="coach-mode-btn" id="coachModeBtn"
                   aria-haspopup="listbox" aria-expanded="false" aria-controls="coachMenu"
-                  title="Writing coach — honesty &amp; specificity, not virality">
+                  title="Writing coach - honesty &amp; specificity, not virality">
             <span id="coachModeValue">on</span>
             <span class="coach-chevron" aria-hidden="true">▾</span>
           </button>
@@ -668,7 +686,7 @@
             <div class="coach-menu-title">Writing coach</div>
             <button type="button" class="coach-opt" role="option" data-value="off" aria-selected="false">
               <span class="coach-opt-name">off</span>
-              <span class="coach-opt-desc">Silent — just the box</span>
+              <span class="coach-opt-desc">Silent - just the box</span>
             </button>
             <button type="button" class="coach-opt" role="option" data-value="on" aria-selected="true">
               <span class="coach-opt-name">on</span>
@@ -677,7 +695,7 @@
           </div>
         </div>
       </div>
-      <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue = everyday · Lightning = vault · Post now = ship"></textarea>
+      <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue schedules it · Post now ships it · ⚡ tags feeling posts"></textarea>
       <div class="coach-panel" id="coachPanel" hidden>
         <div class="coach-row" id="coachMeta"></div>
         <div class="coach-flags" id="coachFlags" hidden></div>
@@ -693,22 +711,19 @@
         <div class="coach-status" id="coachStatus"></div>
       </div>
       <div class="composer-bottom">
-        <span class="count" id="count">0 / 280</span>
-        <span class="cost" id="costEst"></span>
-        <span class="spacer"></span>
-        <button type="button" class="btn-secondary vault-btn" id="vaultToggle" title="Open sparks vault">Vault<span class="badge-count" id="vaultBadge" hidden>0</span></button>
-        <button type="button" class="btn-secondary lightning" id="lightning" title="Save to vault (feeling post)" disabled>Lightning</button>
-        <button type="button" class="btn-secondary" id="postNow" disabled>Post now</button>
-        <button type="button" class="primary" id="add" disabled>Queue</button>
+        <div class="meta-row">
+          <span class="count" id="count">0 / 280</span>
+          <span class="cost" id="costEst"></span>
+          <span class="spacer"></span>
+        </div>
+        <div class="composer-actions">
+          <button type="button" class="lightning-toggle" id="lightningToggle"
+                  title="Tag as lightning (feeling post) - shows ⚡ in queue and history"
+                  aria-pressed="false" aria-label="Lightning tag">⚡</button>
+          <button type="button" class="btn-secondary" id="postNow" disabled>Post now</button>
+          <button type="button" class="primary" id="add" disabled>Queue</button>
+        </div>
       </div>
-    </div>
-
-    <div class="vault-panel" id="vaultPanel" hidden>
-      <div class="vault-head">
-        <span class="label" id="vaultLabel">Vault — sparks</span>
-        <button type="button" class="btn-secondary" id="vaultClose">Close</button>
-      </div>
-      <div class="vault-list" id="vaultList"></div>
     </div>
 
     <div class="controls">
@@ -723,7 +738,7 @@
     </div>
 
     <div class="import-panel" id="importPanel" hidden>
-      <textarea id="importText" placeholder="Paste many posts here — or choose a .txt / .md / .csv file below.&#10;&#10;Separate each post with a blank line (this lets a post span multiple lines)."></textarea>
+      <textarea id="importText" placeholder="Paste many posts here - or choose a .txt / .md / .csv file below.&#10;&#10;Separate each post with a blank line (this lets a post span multiple lines)."></textarea>
       <div class="import-bar">
         <div class="split-group">
           <span class="split-label">Separate posts by</span>
@@ -741,7 +756,7 @@
     </div>
 
     <div class="review-panel" id="reviewPanel" hidden>
-      <textarea id="reviewText" placeholder="Paste posts to review one-by-one — or choose a .txt / .md / .csv file.&#10;&#10;Accept queues immediately; reject discards. Leave anytime and pick up where you left off."></textarea>
+      <textarea id="reviewText" placeholder="Paste posts to review one-by-one - or choose a .txt / .md / .csv file.&#10;&#10;Accept queues immediately; reject discards. Leave anytime and pick up where you left off."></textarea>
       <div class="review-bar">
         <div class="split-group">
           <span class="split-label">Separate posts by</span>
@@ -782,7 +797,7 @@
   <!-- Review swipe overlay (outside .wrap so it covers the full viewport) -->
   <div class="review-swipe" id="reviewSwipe" hidden>
     <div class="swipe-top">
-      <button id="swipeClose" class="btn-secondary" title="Leave swipe — open deck list">Done</button>
+      <button id="swipeClose" class="btn-secondary" title="Leave swipe - open deck list">Done</button>
       <span class="progress" id="swipeProgress">0 left</span>
       <button id="swipeUndo" class="btn-secondary" disabled title="Undo last (Z)"><span class="sym" aria-hidden="true">↩︎</span> Undo</button>
     </div>
@@ -798,7 +813,7 @@
         </div>
         <div class="card-meta" id="swipeMeta">
           <span class="count" id="swipeCount">0 / 280</span>
-          <span class="warn" id="swipeWarn" hidden>Over 280 — edit or reject</span>
+          <span class="warn" id="swipeWarn" hidden>Over 280 - edit or reject</span>
         </div>
       </div>
       <div class="swipe-empty" id="swipeEmpty" hidden>
@@ -853,17 +868,13 @@
     let swipeBusy = false; // block double-tap during animation/request
     let swipeSession = { accepted: 0, rejected: 0 }; // client-side counters for this open
     let swipeEnterBelow = false; // next card should animate in from below
-    let vaultOpen = false;
-    let sparkExpandedId = null;
-    let sparkEditingId = null;
     let coachTimer = null;
     let coachReqId = 0;
     let lastCoachKey = "";
     // On touch devices there's no Shift key and Return should insert a newline,
-    // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
+    // so we don't hijack Enter to submit - the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     const MAX_LEN = 280;
-    const SPARK_MAX = 4000;
     const COACH_MODE_KEY = "xqueue_coach_mode";
     const ABSTRACT_WORDS = [
       "growth", "mindset", "journey", "hustle", "grind", "leverage", "synergy",
@@ -908,7 +919,7 @@
         return false;
       } catch (e) {
         secret = "";
-        showLogin("Connection error — try again.");
+        showLogin("Connection error - try again.");
         return false;
       }
     }
@@ -922,7 +933,7 @@
         const data = await res.json().catch(() => ({}));
         localStorage.removeItem("xqueue_secret");
         secret = "";
-        showLogin(data.error || "Session ended — sign in again.");
+        showLogin(data.error || "Session ended - sign in again.");
         throw new Error("unauthorized");
       }
       return res.json();
@@ -1024,14 +1035,14 @@
       if (!state) return;
       const scrollY = window.scrollY; // preserve position across the list rebuild
 
-      // Interval selector — purely the queue's drain cadence (global).
+      // Interval selector - purely the queue's drain cadence (global).
       const box = document.getElementById("intervals");
       box.innerHTML = "";
       INTERVALS.forEach((h) => {
         const b = document.createElement("button");
         b.textContent = h === 0 ? "∞" : h + "h";
         b.title = h === 0
-          ? "Pause the queue — nothing auto-posts until you pick an interval"
+          ? "Pause the queue - nothing auto-posts until you pick an interval"
           : "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
         if (h === state.interval_hours) b.classList.add("active");
         b.onclick = async () => {
@@ -1042,8 +1053,6 @@
       });
 
       updateReviewChrome();
-      updateVaultChrome();
-
       // Usage + next line
       const paused = state.interval_hours === 0;
       updateUsageLine();
@@ -1055,7 +1064,7 @@
       } else if (state.queued.length) {
         const capped = state.count24h >= state.daily_cap;
         nextEl.innerHTML = capped
-          ? `Daily cap reached — next post <b>after older posts age out</b>. Interval: every ${state.interval_hours}h.`
+          ? `Daily cap reached - next post <b>after older posts age out</b>. Interval: every ${state.interval_hours}h.`
           : `Next post <b>${fmtCountdown(state.next_eligible_at)}</b> &middot; every ${state.interval_hours}h`;
       } else {
         nextEl.innerHTML = `Queue is empty &middot; every ${state.interval_hours}h`;
@@ -1107,7 +1116,7 @@
           el.appendChild(body);
           q.appendChild(el);
           setCnt();
-          autoGrow(ta); // size to fit the full text — no inner scrolling
+          autoGrow(ta); // size to fit the full text - no inner scrolling
           ta.focus();
           // Pull the edit box up so the on-screen keyboard doesn't cover it.
           // Deferred so it runs after render()'s scroll-restore and the keyboard opens.
@@ -1117,10 +1126,12 @@
 
         const qLen = (item.text || "").length;
         const qOver = qLen > MAX_LEN;
+        const isBolt = item.kind === "lightning";
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
             <div class="meta">
+              ${isBolt ? '<span class="badge lightning" title="Lightning">⚡</span>' : ""}
               ${i === 0 ? '<span class="badge next">next</span>' : `<span>#${i + 1} in line</span>`}
               <span class="char-meta${qOver ? " over" : ""}">${qLen} / ${MAX_LEN}</span>
               <span>added ${fmtWhen(item.created_at)}</span>
@@ -1190,7 +1201,7 @@
         q.appendChild(el);
       });
 
-      // "Load more" tile — reveals the next chunk of queued posts (client-side;
+      // "Load more" tile - reveals the next chunk of queued posts (client-side;
       // the whole queue is already loaded, this just caps how many we render).
       if (state.queued.length > queueVisible) {
         const more = document.createElement("div");
@@ -1221,18 +1232,21 @@
         const badge = item.status === "posted"
           ? '<span class="badge posted">posted</span>'
           : '<span class="badge failed">failed</span>';
+        const bolt = item.kind === "lightning"
+          ? '<span class="badge lightning" title="Lightning">⚡</span>'
+          : "";
         const link = item.tweet_id ? ` &middot; <a href="https://x.com/i/web/status/${item.tweet_id}" target="_blank" rel="noopener">view</a>` : "";
         const err = item.error ? ` &middot; ${escapeHtml(item.error).slice(0, 120)}` : "";
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
-            <div class="meta">${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${item.status === "posted" ? " · " + aud(item.cost_usd) : ""}${link}${err}</span></div>
+            <div class="meta">${bolt}${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${item.status === "posted" ? " · " + aud(item.cost_usd) : ""}${link}${err}</span></div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
         h.appendChild(el);
       });
 
-      // "Load more" tile for history — cursor-paginates the next older page.
+      // "Load more" tile for history - cursor-paginates the next older page.
       if (histList.length < (state.historyTotal || 0)) {
         const oldest = histList[histList.length - 1];
         const before = oldest ? (oldest.posted_at || oldest.created_at) : Date.now();
@@ -1252,7 +1266,7 @@
     }
 
     async function refresh() {
-      if (!secret) return; // locked — login page is showing
+      if (!secret) return; // locked - login page is showing
       if (editingId !== null) return; // don't clobber an in-progress edit
       if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
       try {
@@ -1353,7 +1367,7 @@
             summary.textContent =
               `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${aud(state.queue_estimate_usd)} to send`;
           } else if (state.queued.length) {
-            // Paused: no drain cadence, so no runway — just the cost to send.
+            // Paused: no drain cadence, so no runway - just the cost to send.
             summary.textContent = `Paused · ≈ ${aud(state.queue_estimate_usd)} to send`;
           } else {
             summary.textContent = "";
@@ -1379,8 +1393,18 @@
       } catch (e) { /* handled in api() */ }
     }
 
+    let lightningOn = false;
+
+    function setLightning(on) {
+      lightningOn = !!on;
+      const btn = document.getElementById("lightningToggle");
+      if (!btn) return;
+      btn.classList.toggle("active", lightningOn);
+      btn.setAttribute("aria-pressed", lightningOn ? "true" : "false");
+    }
+
     function setComposerBusy(busy) {
-      ["add", "postNow", "lightning"].forEach((id) => {
+      ["add", "postNow"].forEach((id) => {
         const el = document.getElementById(id);
         if (busy) el.disabled = true;
       });
@@ -1390,7 +1414,7 @@
     async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
-      // Same gate for Queue and Post now — empty or over-limit never fire.
+      // Same gate for Queue and Post now - empty or over-limit never fire.
       if (!text || text.length > MAX_LEN) return;
       if (immediate) {
         const ok = await confirmDialog({
@@ -1404,43 +1428,19 @@
       setComposerBusy(true);
       try {
         const path = immediate ? "/api/post-text" : "/api/queue";
-        const res = await api(path, { method: "POST", body: JSON.stringify({ text }) });
+        const payload = { text };
+        if (lightningOn) payload.kind = "lightning";
+        const res = await api(path, { method: "POST", body: JSON.stringify(payload) });
         if (res.ok) {
           state = res;
           ta.value = "";
           clearCoachPanel();
+          // Keep lightning toggle on so you can fire a few in a row; user can tap ⚡ off.
           render();
-          toast(immediate ? "Posted ✅" : "Queued");
+          const bolt = lightningOn ? " ⚡" : "";
+          toast(immediate ? ("Posted ✅" + bolt) : ("Queued" + bolt));
         } else {
           toast(res.error || (immediate ? "Post failed" : "Failed to queue"));
-        }
-      } finally {
-        setComposerBusy(false);
-      }
-    }
-
-    // Lightning → vault (feeling draft). Allows longer mess; ship path still needs ≤280.
-    async function saveLightning() {
-      const ta = document.getElementById("text");
-      const text = ta.value.trim();
-      if (!text || text.length > SPARK_MAX) return;
-      setComposerBusy(true);
-      try {
-        const res = await api("/api/sparks", {
-          method: "POST",
-          body: JSON.stringify({ text }),
-        });
-        if (res.ok) {
-          state = res;
-          ta.value = "";
-          clearCoachPanel();
-          vaultOpen = true;
-          render();
-          toast(text.length > MAX_LEN
-            ? "Lightning saved ⚡ — shorten to ≤280 before queue/post"
-            : "Lightning saved ⚡");
-        } else {
-          toast(res.error || "Failed to save lightning");
         }
       } finally {
         setComposerBusy(false);
@@ -1451,17 +1451,14 @@
       const ta = document.getElementById("text");
       const n = ta.value.length;
       const c = document.getElementById("count");
-      // Soft: show 280 for ship paths; note over when past it.
-      c.textContent = n > MAX_LEN ? `${n} / ${MAX_LEN} · vault ok` : `${n} / ${MAX_LEN}`;
+      c.textContent = `${n} / ${MAX_LEN}`;
       c.classList.toggle("over", n > MAX_LEN);
       const empty = n === 0;
       const shipOk = !empty && n <= MAX_LEN;
-      const vaultOk = !empty && n <= SPARK_MAX;
       document.getElementById("add").disabled = !shipOk;
       document.getElementById("postNow").disabled = !shipOk;
-      document.getElementById("lightning").disabled = !vaultOk;
 
-      // Live cost estimate for the current post (flags links — 13x pricier).
+      // Live cost estimate for the current post (flags links - 13x pricier).
       const costEl = document.getElementById("costEst");
       const link = n > 0 && textHasLink(ta.value);
       const usd = link ? 0.2 : 0.015;
@@ -1533,7 +1530,7 @@
       st.classList.remove("err");
     }
 
-    // Instant lint only — never invents a question (those come from AI).
+    // Instant lint only - never invents a question (those come from AI).
     function localLint(text) {
       const t = String(text || "");
       const lower = t.toLowerCase();
@@ -1572,10 +1569,10 @@
 
     function setCoachMeta(lint) {
       const meta = document.getElementById("coachMeta");
-      const hon = (lint && lint.honesty) || "—";
+      const hon = (lint && lint.honesty) || " - ";
       meta.innerHTML =
         `<span class="coach-pill ${hon}"><span>Honesty</span> <b>${hon}</b></span>` +
-        `<span class="coach-pill"><span>Hook</span> <b>${(lint && lint.hook_type) || "—"}</b></span>` +
+        `<span class="coach-pill"><span>Hook</span> <b>${(lint && lint.hook_type) || " - "}</b></span>` +
         `<span class="coach-pill"><span>Bone</span> <b class="coach-bone">${boneDotsHtml(lint && lint.bone)}</b></span>`;
       const flags = document.getElementById("coachFlags");
       flags.innerHTML = "";
@@ -1696,7 +1693,7 @@
       }
       // AI-only coach: show loading shell, then fetch after pause.
       if (mode === "on") {
-        // Don't flash loading on every keystroke — only once we've scheduled.
+        // Don't flash loading on every keystroke - only once we've scheduled.
         coachTimer = setTimeout(() => {
           const latest = document.getElementById("text").value.trim();
           if (!latest || coachMode() !== "on") return;
@@ -1728,13 +1725,13 @@
           lastCoachKey = key;
           showCoach(res.coach, "coach · ai");
         } else {
-          // Don't cache failures — allow retry on same text.
+          // Don't cache failures - allow retry on same text.
           showCoachError(text, res.error || "Coach returned nothing");
         }
       } catch (e) {
         if (id !== coachReqId) return;
         const msg = e && e.name === "AbortError"
-          ? "Coach timed out — tap to retry"
+          ? "Coach timed out - tap to retry"
           : (e && e.message) || "Coach request failed";
         showCoachError(text, msg);
       } finally {
@@ -1760,238 +1757,21 @@
         : postedLine;
     }
 
-    // ---- Vault ----
-    function updateVaultChrome() {
-      const sparks = (state && state.sparks) || { items: [], count: 0 };
-      const n = sparks.count || 0;
-      const badge = document.getElementById("vaultBadge");
-      if (n > 0) {
-        badge.hidden = false;
-        badge.textContent = String(n);
-      } else {
-        badge.hidden = true;
-      }
-      document.getElementById("vaultLabel").textContent =
-        n ? `Vault — ${n} spark${n === 1 ? "" : "s"}` : "Vault — empty";
-      document.getElementById("vaultPanel").hidden = !vaultOpen;
-      if (vaultOpen) renderVaultList();
-    }
-
-    function renderVaultList() {
-      const list = document.getElementById("vaultList");
-      list.innerHTML = "";
-      const items = (state.sparks && state.sparks.items) || [];
-      if (!items.length) {
-        list.innerHTML = '<div class="empty">No sparks yet. Hit Lightning to save a feeling draft.</div>';
-        return;
-      }
-      const now = Date.now();
-      items.forEach((item) => {
-        const el = document.createElement("div");
-        el.className = "item spark" + (item.id === sparkExpandedId ? " expanded" : "");
-        const cooling = item.status === "cooling" && item.cool_until && item.cool_until > now;
-        const len = (item.text || "").length;
-        const over = len > MAX_LEN;
-
-        if (item.id === sparkEditingId) {
-          const ta = document.createElement("textarea");
-          ta.className = "edit-area";
-          ta.value = item.text;
-          const bar = document.createElement("div");
-          bar.className = "edit-bar";
-          const cnt = document.createElement("span");
-          cnt.className = "count";
-          const save = document.createElement("button");
-          save.className = "primary";
-          save.textContent = "Save";
-          const cancel = document.createElement("button");
-          cancel.textContent = "Cancel";
-          const setCnt = () => {
-            const n = ta.value.length;
-            cnt.textContent = n > MAX_LEN ? `${n} / ${MAX_LEN} · vault` : `${n} / ${MAX_LEN}`;
-            cnt.classList.toggle("over", n > MAX_LEN);
-            save.disabled = n === 0 || n > SPARK_MAX;
-          };
-          ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
-          save.onclick = async () => {
-            const text = ta.value.trim();
-            if (!text || text.length > SPARK_MAX) return;
-            try {
-              const res = await api("/api/sparks/" + item.id, {
-                method: "PATCH",
-                body: JSON.stringify({ text }),
-              });
-              if (res.ok) {
-                state = res;
-                sparkEditingId = null;
-                render();
-                toast("Spark updated");
-              } else toast(res.error || "Update failed");
-            } catch (_) {}
-          };
-          cancel.onclick = () => { sparkEditingId = null; renderVaultList(); };
-          bar.append(cnt, document.createElement("span"));
-          bar.lastChild.className = "spacer";
-          bar.append(cancel, save);
-          const body = document.createElement("div");
-          body.className = "body";
-          body.append(ta, bar);
-          el.appendChild(body);
-          list.appendChild(el);
-          setCnt();
-          autoGrow(ta);
-          ta.focus();
-          return;
-        }
-
-        const body = document.createElement("div");
-        body.className = "body";
-        const txt = document.createElement("div");
-        txt.className = "txt";
-        txt.textContent = item.text;
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        const badge = document.createElement("span");
-        badge.className = "badge " + (item.status || "draft");
-        badge.textContent = cooling
-          ? "cooling " + fmtCountdown(item.cool_until)
-          : (item.status || "draft");
-        meta.appendChild(badge);
-        const charMeta = document.createElement("span");
-        charMeta.className = "char-meta" + (over ? " over" : "");
-        charMeta.textContent = len + " chars";
-        meta.appendChild(charMeta);
-        body.append(txt, meta);
-
-        const actions = document.createElement("div");
-        actions.className = "item-actions";
-        const mk = (label, title, fn) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.textContent = label;
-          b.title = title;
-          b.onclick = (e) => { e.stopPropagation(); fn(); };
-          return b;
-        };
-        actions.appendChild(mk("Edit", "Edit spark", () => {
-          sparkEditingId = item.id;
-          sparkExpandedId = null;
-          renderVaultList();
-        }));
-        if (!cooling) {
-          const qBtn = mk("Queue", "Add to queue", () => sparkQueue(item));
-          qBtn.disabled = over;
-          actions.appendChild(qBtn);
-          const pBtn = mk("Post", "Post to X now", () => sparkPost(item));
-          pBtn.disabled = over;
-          actions.appendChild(pBtn);
-        } else {
-          actions.appendChild(mk("Uncool", "End cool-off", async () => {
-            try {
-              const res = await api("/api/sparks/" + item.id, {
-                method: "PATCH",
-                body: JSON.stringify({ status: "draft" }),
-              });
-              if (res.ok) { state = res; render(); toast("Cool-off cleared"); }
-              else toast(res.error || "Failed");
-            } catch (_) {}
-          }));
-        }
-        actions.appendChild(mk("Cool 1h", "Cool off for 1 hour", async () => {
-          try {
-            const res = await api("/api/sparks/" + item.id, {
-              method: "PATCH",
-              body: JSON.stringify({ status: "cooling", cool_minutes: 60 }),
-            });
-            if (res.ok) { state = res; render(); toast("Cooling 1h"); }
-            else toast(res.error || "Failed");
-          } catch (_) {}
-        }));
-        actions.appendChild(mk("⌫", "Delete", async () => {
-          const ok = await confirmDialog({
-            title: "Delete spark?",
-            body: item.text,
-            quote: true,
-            danger: true,
-            confirmLabel: "Delete",
-          });
-          if (!ok) return;
-          try {
-            const res = await api("/api/sparks/" + item.id, { method: "DELETE" });
-            if (res.ok) { state = res; render(); toast("Deleted"); }
-          } catch (_) {}
-        }));
-
-        el.append(body, actions);
-        el.addEventListener("click", (e) => {
-          if (e.target.closest("button")) return;
-          if (isTouch) {
-            sparkExpandedId = sparkExpandedId === item.id ? null : item.id;
-            renderVaultList();
-          }
-        });
-        list.appendChild(el);
-      });
-    }
-
-    async function sparkQueue(item) {
-      if ((item.text || "").length > MAX_LEN) {
-        toast("Shorten to ≤280 first");
-        return;
-      }
-      try {
-        const res = await api("/api/sparks/" + item.id + "/queue", { method: "POST" });
-        if (res.ok) {
-          state = res;
-          render();
-          toast("Queued from vault");
-        } else toast(res.error || "Queue failed");
-      } catch (_) {}
-    }
-
-    async function sparkPost(item) {
-      if ((item.text || "").length > MAX_LEN) {
-        toast("Shorten to ≤280 first");
-        return;
-      }
-      const ok = await confirmDialog({
-        title: "Post spark to X now?",
-        body: item.text,
-        quote: true,
-        confirmLabel: "Post now",
-      });
-      if (!ok) return;
-      try {
-        const res = await api("/api/sparks/" + item.id + "/post", { method: "POST" });
-        if (res.ok) {
-          state = res;
-          render();
-          toast("Posted ✅");
-        } else toast(res.error || "Post failed");
-      } catch (_) {}
-    }
-
     document.getElementById("text").addEventListener("input", updateCount);
     document.getElementById("text").addEventListener("keydown", (e) => {
       if (!isTouch && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         const n = document.getElementById("text").value.length;
         const t = document.getElementById("text").value.trim();
-        if (t && n <= MAX_LEN) add(false); // Enter queues; Lightning / Post now are explicit
+        if (t && n <= MAX_LEN) add(false); // Enter queues; Post now is an explicit click
       }
     });
     document.getElementById("add").addEventListener("click", () => add(false));
     document.getElementById("postNow").addEventListener("click", () => add(true));
-    document.getElementById("lightning").addEventListener("click", () => saveLightning());
-    document.getElementById("vaultToggle").addEventListener("click", () => {
-      vaultOpen = !vaultOpen;
-      updateVaultChrome();
+    document.getElementById("lightningToggle").addEventListener("click", () => {
+      setLightning(!lightningOn);
     });
-    document.getElementById("vaultClose").addEventListener("click", () => {
-      vaultOpen = false;
-      updateVaultChrome();
-    });
-    // Custom coach picker (modal-styled menu — no native <select>).
+    // Custom coach picker (modal-styled menu - no native <select>).
     (function initCoachMode() {
       const saved = localStorage.getItem(COACH_MODE_KEY);
       setCoachMode(normalizeCoachMode(saved || "on"), { silent: true });
@@ -2024,7 +1804,7 @@
 
     // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
     document.getElementById("text").placeholder = isTouch
-      ? "What's happening? Return adds a new line — tap Queue to add it."
+      ? "What's happening? Return adds a new line - tap Queue to add it."
       : "What's happening? (Enter to queue, Shift+Enter for newline)";
 
     // ---- Bulk import ----
@@ -2050,7 +1830,7 @@
       document.getElementById("reviewPanel").hidden = true;
       const p = document.getElementById("importPanel");
       p.hidden = !p.hidden;
-      // Don't auto-focus the textarea — on mobile that pops the keyboard.
+      // Don't auto-focus the textarea - on mobile that pops the keyboard.
     });
     document.getElementById("importText").addEventListener("input", updateImportCount);
     document.querySelectorAll('input[name="split"]').forEach((r) =>
@@ -2580,7 +2360,7 @@
       swipeEditIgnoreBlur = false;
       renderSwipeCard();
       const editEl = document.getElementById("swipeEdit");
-      // Must focus synchronously inside the tap gesture — any setTimeout and
+      // Must focus synchronously inside the tap gesture - any setTimeout and
       // iOS will show the field but not open the keyboard.
       editEl.focus();
       autoGrow(editEl);
@@ -2634,7 +2414,7 @@
         });
         if (res.ok) {
           state = res;
-          // Refresh chrome only — don't re-render the card if the user already moved on.
+          // Refresh chrome only - don't re-render the card if the user already moved on.
           if (swipeMode) updateReviewChrome();
         } else {
           toast(res.error || "Failed to save");
@@ -2652,7 +2432,7 @@
       const existing = reviewItems().length;
       let mode = "replace";
       if (existing > 0) {
-        // Append / Replace… / dismiss (outside or Esc aborts — does not open Replace).
+        // Append / Replace… / dismiss (outside or Esc aborts - does not open Replace).
         const choice = await confirmDialog({
           title: "Deck already has " + existing + " posts",
           body: "Append these " + posts.length + " posts to the end of the deck?\n\nReplace… discards the current deck first.",
@@ -2724,7 +2504,7 @@
     document.getElementById("reviewAiGen").addEventListener("click", () => generateAiReview());
     document.getElementById("reviewContinue").addEventListener("click", () => {
       if (!reviewItems().length) {
-        toast("Deck is empty — paste posts above");
+        toast("Deck is empty - paste posts above");
         return;
       }
       openSwipeMode();
@@ -2741,7 +2521,7 @@
       const existing = reviewItems().length;
       let mode = "append";
       if (existing > 0) {
-        // Append / Replace… / dismiss (outside or Esc aborts — does not open Replace).
+        // Append / Replace… / dismiss (outside or Esc aborts - does not open Replace).
         const choice = await confirmDialog({
           title: "Deck already has " + existing + " posts",
           body: "Append AI drafts to the end of the deck?\n\nReplace… discards the current deck first.",
@@ -2774,7 +2554,7 @@
         if (res.ok) {
           state = res;
           render();
-          // Stay on the paste/list panel — don't force swipe after a long AI wait.
+          // Stay on the paste/list panel - don't force swipe after a long AI wait.
           openReviewPanel();
           const n = res.generated != null ? res.generated : res.added;
           // Short + scannable on mobile (no wrapping essay).
@@ -2860,7 +2640,7 @@
       autoGrow(document.getElementById("swipeEdit"));
       updateSwipeMeta();
     });
-    // iOS: keyboard Done / dismiss often only blurs the field — no Enter event.
+    // iOS: keyboard Done / dismiss often only blurs the field - no Enter event.
     // Saving on blur is the reliable mobile path.
     document.getElementById("swipeEdit").addEventListener("blur", () => {
       if (!swipeMode || !swipeEditing || swipeEditIgnoreBlur) return;
@@ -2919,7 +2699,7 @@
     };
     (function setupCardSwipe() {
       const card = document.getElementById("swipeCard");
-      // Commit only once the card has gone green/red — anything short snaps back.
+      // Commit only once the card has gone green/red - anything short snaps back.
       const COMMIT_PX = 130;
       const FLASH_PX = 130;
       const AXIS_LOCK = 14;
@@ -2994,7 +2774,7 @@
         const wasDrag = swipePointer.axis != null || swipePointer.maxMove > TAP_MAX_MOVE;
 
         if (swipePointer.axis === "x" && adx >= COMMIT_PX) {
-          // Continue out from current position — do NOT reset to centre first.
+          // Continue out from current position - do NOT reset to centre first.
           if (dx > 0) swipeAccept({ fromDx: dx });
           else swipeReject({ fromDx: dx });
           return;

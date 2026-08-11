@@ -22,11 +22,7 @@ const AI_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const AI_GEN_MIN = 1;
 const AI_GEN_MAX = 25;
 const AI_GEN_DEFAULT = 10;
-// Free daily Neuron allocation (Cloudflare Workers AI). Resets 00:00 UTC.
-const AI_NEURON_DAILY_LIMIT = 10000;
-// Official CF neuron rates for mistral-small-3.1-24b-instruct (per 1M tokens).
-const AI_NEURONS_PER_M_IN = 31876;
-const AI_NEURONS_PER_M_OUT = 50488;
+
 
 // X pay-per-use pricing (USD). A post with a link costs ~13x a plain one.
 const COST_TEXT_USD = 0.015;
@@ -83,7 +79,7 @@ async function handleApi(request, env, ctx, url) {
       const before = Number(url.searchParams.get("before")) || Date.now();
       const rows = (
         await env.DB.prepare(
-          "SELECT id, text, status, tweet_id, error, posted_at, created_at FROM queue " +
+          "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind FROM queue " +
             "WHERE status IN ('posted','failed') AND COALESCE(posted_at, created_at) < ?1 " +
             "ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
         )
@@ -99,7 +95,7 @@ async function handleApi(request, env, ctx, url) {
 
     if (pathname === "/api/queue" && method === "POST") {
       const body = await request.json();
-      return await addToQueue(env, String(body.text || ""));
+      return await addToQueue(env, String(body.text || ""), body.kind);
     }
 
     // Bulk import: add many posts at once. Body: { texts: string[] }.
@@ -179,9 +175,10 @@ async function handleApi(request, env, ctx, url) {
 
     // Post an arbitrary typed post immediately (the "NOW" / POST button), instead
     // of adding it to the queue. Records it in history and counts toward the cap.
+    // Body: { text, kind?: "lightning" } - kind is kept for history tracking only.
     if (pathname === "/api/post-text" && method === "POST") {
       const body = await request.json();
-      return await postTextNow(env, String(body.text || ""));
+      return await postTextNow(env, String(body.text || ""), body.kind);
     }
 
     // ---- Review deck (Tinder-style triage before / instead of bulk import) ----
@@ -287,16 +284,30 @@ async function handleApi(request, env, ctx, url) {
   }
 }
 
-async function addToQueue(env, text) {
+function normalizeKind(kind) {
+  return String(kind || "").toLowerCase() === "lightning" ? "lightning" : null;
+}
+
+async function ensureQueueKindColumn(env) {
+  try {
+    await env.DB.prepare("ALTER TABLE queue ADD COLUMN kind TEXT").run();
+  } catch (_) {
+    /* column already exists */
+  }
+}
+
+async function addToQueue(env, text, kind) {
   text = text.trim();
   if (!text) return json({ ok: false, error: "Empty post." }, 400);
   if (text.length > MAX_TWEET_LEN) {
     return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
   }
+  await ensureQueueKindColumn(env);
+  const k = normalizeKind(kind);
   await env.DB.prepare(
-    "INSERT INTO queue (text, status, created_at) VALUES (?1, 'queued', ?2)"
+    "INSERT INTO queue (text, status, created_at, kind) VALUES (?1, 'queued', ?2, ?3)"
   )
-    .bind(text, Date.now())
+    .bind(text, Date.now(), k)
     .run();
   return json({ ok: true, ...(await getState(env)) });
 }
@@ -409,7 +420,8 @@ async function addBulk(env, texts) {
 // Post typed text right now, bypassing the queue. Respects the daily cap. On
 // success it's recorded as a 'posted' row (so it shows in history and counts
 // toward the 24h cap) and resets the interval clock so the queue keeps spacing.
-async function postTextNow(env, text) {
+// kind "lightning" is stored for personal tracking (⚡ badge in history).
+async function postTextNow(env, text, kind) {
   text = text.trim();
   if (!text) return json({ ok: false, error: "Empty post." }, 400);
   if (text.length > MAX_TWEET_LEN) {
@@ -418,13 +430,15 @@ async function postTextNow(env, text) {
   if ((await countRecentPosts(env)) >= DAILY_CAP) {
     return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
   }
+  await ensureQueueKindColumn(env);
+  const k = normalizeKind(kind);
   const now = Date.now();
   try {
     const tweetId = await postTweet(env, text);
     await env.DB.prepare(
-      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd) VALUES (?1, 'posted', ?2, ?2, ?3, ?4)"
+      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd, kind) VALUES (?1, 'posted', ?2, ?2, ?3, ?4, ?5)"
     )
-      .bind(text, now, tweetId, postCostUsd(text))
+      .bind(text, now, tweetId, postCostUsd(text), k)
       .run();
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
@@ -439,20 +453,20 @@ async function postTextNow(env, text) {
 // post), recent history, current interval, 24h usage, and when the next post is
 // eligible to go out.
 async function getState(env) {
-  // Ensure review/sparks tables exist so /api/state always includes real summaries.
+  // Ensure review tables + optional kind column exist.
   await ensureReviewSchema(env);
-  await ensureSparkSchema(env);
+  await ensureQueueKindColumn(env);
   const settings = await getSettings(env);
 
   const queued = (
     await env.DB.prepare(
-      "SELECT id, text, created_at FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
+      "SELECT id, text, created_at, kind FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
     ).all()
   ).results;
 
   const history = (
     await env.DB.prepare(
-      "SELECT id, text, status, tweet_id, error, posted_at, created_at FROM queue " +
+      "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind FROM queue " +
         "WHERE status IN ('posted','failed') ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
     ).all()
   ).results;
@@ -494,8 +508,6 @@ async function getState(env) {
     : null;
 
   const review = await getReviewState(env);
-  const sparks = await getSparkState(env);
-  const ai = await getAiUsageState(env);
 
   return {
     interval_hours: settings.interval_hours,
@@ -511,129 +523,7 @@ async function getState(env) {
     total_spent_usd: totalSpentUsd,
     spent_posts: spentPosts,
     review,
-    sparks,
-    ai,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Workers AI Neuron usage (tracked from xqueue calls — CF has no binding for
-// "remaining free neurons"; we estimate from token usage + official rates).
-// ---------------------------------------------------------------------------
-
-let aiUsageSchemaReady = false;
-
-function utcDayKey(ms = Date.now()) {
-  return new Date(ms).toISOString().slice(0, 10); // YYYY-MM-DD UTC
-}
-
-async function ensureAiUsageSchema(env) {
-  if (aiUsageSchemaReady) return;
-  await env.DB.prepare(
-    "CREATE TABLE IF NOT EXISTS ai_usage (" +
-      "day TEXT PRIMARY KEY, " +
-      "neurons REAL NOT NULL DEFAULT 0, " +
-      "calls INTEGER NOT NULL DEFAULT 0, " +
-      "prompt_tokens INTEGER NOT NULL DEFAULT 0, " +
-      "completion_tokens INTEGER NOT NULL DEFAULT 0, " +
-      "updated_at INTEGER NOT NULL)"
-  ).run();
-  aiUsageSchemaReady = true;
-}
-
-function tokensToNeurons(promptTokens, completionTokens) {
-  const pin = Math.max(0, Number(promptTokens) || 0);
-  const cout = Math.max(0, Number(completionTokens) || 0);
-  return (pin / 1e6) * AI_NEURONS_PER_M_IN + (cout / 1e6) * AI_NEURONS_PER_M_OUT;
-}
-
-// Rough fallback when the model response has no usage block.
-function estimateTokensFromText(...parts) {
-  const chars = parts.map((p) => String(p || "").length).reduce((a, b) => a + b, 0);
-  return Math.max(1, Math.ceil(chars / 4));
-}
-
-function extractAiUsage(raw, fallbackPromptTokens, fallbackCompletionTokens) {
-  const u =
-    (raw && raw.usage) ||
-    (raw && raw.result && raw.result.usage) ||
-    null;
-  let prompt = u && (u.prompt_tokens ?? u.input_tokens ?? u.prompt_token_count);
-  let completion = u && (u.completion_tokens ?? u.output_tokens ?? u.completion_token_count);
-  if (!Number.isFinite(Number(prompt))) prompt = fallbackPromptTokens;
-  if (!Number.isFinite(Number(completion))) completion = fallbackCompletionTokens;
-  return {
-    prompt_tokens: Math.max(0, Math.round(Number(prompt) || 0)),
-    completion_tokens: Math.max(0, Math.round(Number(completion) || 0)),
-  };
-}
-
-async function recordAiUsage(env, raw, fallbackPromptTokens, fallbackCompletionTokens) {
-  try {
-    await ensureAiUsageSchema(env);
-    const { prompt_tokens, completion_tokens } = extractAiUsage(
-      raw,
-      fallbackPromptTokens,
-      fallbackCompletionTokens
-    );
-    const neurons = tokensToNeurons(prompt_tokens, completion_tokens);
-    const day = utcDayKey();
-    const now = Date.now();
-    await env.DB.prepare(
-      "INSERT INTO ai_usage (day, neurons, calls, prompt_tokens, completion_tokens, updated_at) " +
-        "VALUES (?1, ?2, 1, ?3, ?4, ?5) " +
-        "ON CONFLICT(day) DO UPDATE SET " +
-        "neurons = neurons + excluded.neurons, " +
-        "calls = calls + 1, " +
-        "prompt_tokens = prompt_tokens + excluded.prompt_tokens, " +
-        "completion_tokens = completion_tokens + excluded.completion_tokens, " +
-        "updated_at = excluded.updated_at"
-    )
-      .bind(day, neurons, prompt_tokens, completion_tokens, now)
-      .run();
-    return { day, neurons, prompt_tokens, completion_tokens };
-  } catch (_) {
-    return null;
-  }
-}
-
-async function getAiUsageState(env) {
-  const day = utcDayKey();
-  const limit = AI_NEURON_DAILY_LIMIT;
-  try {
-    await ensureAiUsageSchema(env);
-    const row = await env.DB.prepare(
-      "SELECT neurons, calls, prompt_tokens, completion_tokens, updated_at FROM ai_usage WHERE day = ?1"
-    )
-      .bind(day)
-      .first();
-    const used = row && row.neurons != null ? Number(row.neurons) : 0;
-    const calls = row && row.calls != null ? Number(row.calls) : 0;
-    return {
-      day,
-      neurons_used: Math.round(used * 10) / 10,
-      neurons_limit: limit,
-      neurons_remaining: Math.max(0, Math.round((limit - used) * 10) / 10),
-      calls,
-      prompt_tokens: row ? Number(row.prompt_tokens) || 0 : 0,
-      completion_tokens: row ? Number(row.completion_tokens) || 0 : 0,
-      // Honest: only counts AI calls made through this xqueue worker.
-      scope: "xqueue",
-      model: AI_MODEL,
-    };
-  } catch (_) {
-    return {
-      day,
-      neurons_used: 0,
-      neurons_limit: limit,
-      neurons_remaining: limit,
-      calls: 0,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      scope: "xqueue",
-      model: AI_MODEL,
-    };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1002,12 +892,7 @@ async function coachSpark(env, body) {
         const msg2 = String(err2 && err2.message ? err2.message : err2);
         if (/neuron|quota|limit|429/i.test(msg2)) {
           return json(
-            {
-              ok: false,
-              error: "AI quota hit (Neurons). Try again later.",
-              lint,
-              ai: await getAiUsageState(env),
-            },
+            { ok: false, error: "AI quota hit (Neurons). Try again later.", lint },
             429
           );
         }
@@ -1015,25 +900,13 @@ async function coachSpark(env, body) {
       }
     } else if (/neuron|quota|limit|429/i.test(msg)) {
       return json(
-        {
-          ok: false,
-          error: "AI quota hit (Neurons). Try again later.",
-          lint,
-          ai: await getAiUsageState(env),
-        },
+        { ok: false, error: "AI quota hit (Neurons). Try again later.", lint },
         429
       );
     } else {
       return json({ ok: false, error: "AI request failed: " + msg, lint }, 502);
     }
   }
-
-  await recordAiUsage(
-    env,
-    raw,
-    estimateTokensFromText(system, user),
-    300
-  );
 
   const extracted = extractAiText(raw);
   const parsed = parseCoachJson(extracted, lint);
@@ -1044,7 +917,6 @@ async function coachSpark(env, body) {
         error: "Couldn't parse coach response. Try again.",
         lint,
         debug: String(extracted || "").slice(0, 280),
-        ai: await getAiUsageState(env),
       },
       502
     );
@@ -1054,7 +926,6 @@ async function coachSpark(env, body) {
     ok: true,
     coach: { ...parsed, source: "ai" },
     model: AI_MODEL,
-    ai: await getAiUsageState(env),
   });
 }
 
@@ -1407,13 +1278,6 @@ async function generateReviewDrafts(env, body) {
     return json({ ok: false, error: "AI request failed: " + msg }, 502);
   }
 
-  await recordAiUsage(
-    env,
-    raw,
-    estimateTokensFromText(system, userParts.join("\n")),
-    Math.max(200, count * 80)
-  );
-
   let text = extractAiText(raw);
   if (text && typeof text === "object") text = JSON.stringify(text);
   text = String(text || "");
@@ -1438,7 +1302,6 @@ async function generateReviewDrafts(env, body) {
     generated: posts.length,
     model: AI_MODEL,
     topic: topic || null,
-    ai: await getAiUsageState(env),
   });
 }
 
