@@ -179,27 +179,6 @@
       padding: 6px 14px;
       font-size: 16px;
     }
-    /* Compact lightning tag toggle (not a third full action). */
-    button.lightning-toggle {
-      flex: 0 0 auto;
-      min-width: 40px;
-      padding: 6px 10px;
-      font-size: 16px;
-      line-height: 1.25;
-      min-height: 34px;
-      border-color: #6b5a1e;
-      color: #8a7a40;
-      background: transparent;
-    }
-    button.lightning-toggle:hover:not(:disabled) {
-      border-color: #c9a227; color: #f0d060;
-    }
-    button.lightning-toggle.active {
-      border-color: #c9a227;
-      color: #ffe08a;
-      background: #1c1a12;
-      box-shadow: 0 0 0 1px #6b5a1e inset;
-    }
     .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .count.over { color: var(--danger); }
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -279,13 +258,6 @@
         padding: 10px 12px;
         font-size: 15px;
         min-height: 42px;
-      }
-      button.lightning-toggle {
-        flex: 0 0 46px;
-        min-width: 46px;
-        min-height: 42px;
-        padding: 10px 8px;
-        font-size: 18px;
       }
     }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
@@ -695,7 +667,7 @@
           </div>
         </div>
       </div>
-      <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue schedules it · Post now ships it · ⚡ tags feeling posts"></textarea>
+      <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue schedules it · Post now ships it · coach on = ⚡"></textarea>
       <div class="coach-panel" id="coachPanel" hidden>
         <div class="coach-row" id="coachMeta"></div>
         <div class="coach-flags" id="coachFlags" hidden></div>
@@ -717,9 +689,6 @@
           <span class="spacer"></span>
         </div>
         <div class="composer-actions">
-          <button type="button" class="lightning-toggle" id="lightningToggle"
-                  title="Tag as lightning (feeling post) - shows ⚡ in queue and history"
-                  aria-pressed="false" aria-label="Lightning tag">⚡</button>
           <button type="button" class="btn-secondary" id="postNow" disabled>Post now</button>
           <button type="button" class="primary" id="add" disabled>Queue</button>
         </div>
@@ -1393,16 +1362,6 @@
       } catch (e) { /* handled in api() */ }
     }
 
-    let lightningOn = false;
-
-    function setLightning(on) {
-      lightningOn = !!on;
-      const btn = document.getElementById("lightningToggle");
-      if (!btn) return;
-      btn.classList.toggle("active", lightningOn);
-      btn.setAttribute("aria-pressed", lightningOn ? "true" : "false");
-    }
-
     function setComposerBusy(busy) {
       ["add", "postNow"].forEach((id) => {
         const el = document.getElementById(id);
@@ -1428,16 +1387,16 @@
       setComposerBusy(true);
       try {
         const path = immediate ? "/api/post-text" : "/api/queue";
+        // Landing composer only: coach on => lightning tag (not bulk/review).
         const payload = { text };
-        if (lightningOn) payload.kind = "lightning";
+        if (coachMode() === "on") payload.kind = "lightning";
         const res = await api(path, { method: "POST", body: JSON.stringify(payload) });
         if (res.ok) {
           state = res;
           ta.value = "";
           clearCoachPanel();
-          // Keep lightning toggle on so you can fire a few in a row; user can tap ⚡ off.
           render();
-          const bolt = lightningOn ? " ⚡" : "";
+          const bolt = payload.kind === "lightning" ? " ⚡" : "";
           toast(immediate ? ("Posted ✅" + bolt) : ("Queued" + bolt));
         } else {
           toast(res.error || (immediate ? "Post failed" : "Failed to queue"));
@@ -1770,9 +1729,6 @@
     });
     document.getElementById("add").addEventListener("click", () => add(false));
     document.getElementById("postNow").addEventListener("click", () => add(true));
-    document.getElementById("lightningToggle").addEventListener("click", () => {
-      setLightning(!lightningOn);
-    });
     // Custom coach picker (modal-styled menu - no native <select>).
     (function initCoachMode() {
       const saved = localStorage.getItem(COACH_MODE_KEY);
