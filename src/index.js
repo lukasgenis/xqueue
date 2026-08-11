@@ -234,6 +234,48 @@ async function handleApi(request, env, ctx, url) {
       return await rejectReviewItem(env, Number(revReject[1]));
     }
 
+    // ---- Sparks (vault): feeling-first drafts, separate from the queue factory ----
+    if (pathname === "/api/sparks" && method === "GET") {
+      await ensureSparkSchema(env);
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    // Save a lightning draft. Body: { text, cool_minutes? } — cool_minutes > 0
+    // sets status cooling until now + minutes; otherwise draft.
+    if (pathname === "/api/sparks" && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await createSpark(env, body || {});
+    }
+
+    // Live writing coach (Mistral). Body: { text }. Not for virality — honesty/specificity.
+    if (pathname === "/api/spark/coach" && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await coachSpark(env, body || {});
+    }
+
+    const sparkItem = pathname.match(/^\/api\/sparks\/(\d+)$/);
+    if (sparkItem && method === "PATCH") {
+      const body = await request.json().catch(() => ({}));
+      return await updateSpark(env, Number(sparkItem[1]), body || {});
+    }
+    if (sparkItem && method === "DELETE") {
+      await ensureSparkSchema(env);
+      await env.DB.prepare("DELETE FROM sparks WHERE id = ?1")
+        .bind(Number(sparkItem[1]))
+        .run();
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    const sparkQueue = pathname.match(/^\/api\/sparks\/(\d+)\/queue$/);
+    if (sparkQueue && method === "POST") {
+      return await queueSpark(env, Number(sparkQueue[1]));
+    }
+
+    const sparkPost = pathname.match(/^\/api\/sparks\/(\d+)\/post$/);
+    if (sparkPost && method === "POST") {
+      return await postSparkNow(env, Number(sparkPost[1]));
+    }
+
     return json({ ok: false, error: "Not found." }, 404);
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 500);
@@ -392,8 +434,9 @@ async function postTextNow(env, text) {
 // post), recent history, current interval, 24h usage, and when the next post is
 // eligible to go out.
 async function getState(env) {
-  // Ensure review tables exist so /api/state always includes a real deck summary.
+  // Ensure review/sparks tables exist so /api/state always includes real summaries.
   await ensureReviewSchema(env);
+  await ensureSparkSchema(env);
   const settings = await getSettings(env);
 
   const queued = (
@@ -446,6 +489,7 @@ async function getState(env) {
     : null;
 
   const review = await getReviewState(env);
+  const sparks = await getSparkState(env);
 
   return {
     interval_hours: settings.interval_hours,
@@ -461,7 +505,497 @@ async function getState(env) {
     total_spent_usd: totalSpentUsd,
     spent_posts: spentPosts,
     review,
+    sparks,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sparks vault + writing coach
+// ---------------------------------------------------------------------------
+
+let sparkSchemaReady = false;
+const SPARK_COOL_DEFAULT_MIN = 60;
+const SPARK_MAX_TEXT = 4000; // body can be messy; ship path still enforces 280
+
+async function ensureSparkSchema(env) {
+  if (sparkSchemaReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS sparks (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+      "text TEXT NOT NULL, " +
+      "status TEXT NOT NULL DEFAULT 'draft', " + // draft | cooling | private | queued | posted
+      "cool_until INTEGER, " +
+      "created_at INTEGER NOT NULL, " +
+      "updated_at INTEGER NOT NULL, " +
+      "posted_at INTEGER, " +
+      "queue_id INTEGER)"
+  ).run();
+  try {
+    await env.DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks (status, updated_at)"
+    ).run();
+  } catch (_) { /* exists */ }
+  sparkSchemaReady = true;
+}
+
+async function getSparkState(env) {
+  try {
+    const now = Date.now();
+    // Auto-promote cooling → draft when timer elapsed (cheap, on every state read).
+    await env.DB.prepare(
+      "UPDATE sparks SET status = 'draft', cool_until = NULL, updated_at = ?1 " +
+        "WHERE status = 'cooling' AND cool_until IS NOT NULL AND cool_until <= ?1"
+    )
+      .bind(now)
+      .run();
+
+    const items = (
+      await env.DB.prepare(
+        "SELECT id, text, status, cool_until, created_at, updated_at, posted_at, queue_id " +
+          "FROM sparks WHERE status IN ('draft','cooling','private') " +
+          "ORDER BY updated_at DESC LIMIT 100"
+      ).all()
+    ).results;
+    const openCount = (
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM sparks WHERE status IN ('draft','cooling','private')"
+      ).first()
+    ).n;
+    return {
+      items: items || [],
+      count: openCount || 0,
+    };
+  } catch (_) {
+    return { items: [], count: 0 };
+  }
+}
+
+async function createSpark(env, body) {
+  await ensureSparkSchema(env);
+  let text = String(body.text || "").trim();
+  if (!text) return json({ ok: false, error: "Empty spark." }, 400);
+  if (text.length > SPARK_MAX_TEXT) {
+    return json({ ok: false, error: `Too long (${text.length}/${SPARK_MAX_TEXT}).` }, 400);
+  }
+  let coolMin = Number(body.cool_minutes);
+  if (!Number.isFinite(coolMin) || coolMin < 0) coolMin = 0;
+  coolMin = Math.min(24 * 60, Math.round(coolMin));
+  const now = Date.now();
+  const status = coolMin > 0 ? "cooling" : "draft";
+  const coolUntil = coolMin > 0 ? now + coolMin * 60 * 1000 : null;
+  const res = await env.DB.prepare(
+    "INSERT INTO sparks (text, status, cool_until, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)"
+  )
+    .bind(text, status, coolUntil, now)
+    .run();
+  const id = res.meta && res.meta.last_row_id;
+  return json({
+    ok: true,
+    spark_id: id,
+    status,
+    cool_until: coolUntil,
+    ...(await getState(env)),
+  });
+}
+
+async function updateSpark(env, id, body) {
+  await ensureSparkSchema(env);
+  const row = await env.DB.prepare(
+    "SELECT id, status FROM sparks WHERE id = ?1"
+  )
+    .bind(id)
+    .first();
+  if (!row) return json({ ok: false, error: "Spark not found." }, 404);
+  if (row.status === "queued" || row.status === "posted") {
+    return json({ ok: false, error: "Spark already shipped." }, 400);
+  }
+
+  const now = Date.now();
+  const sets = [];
+  const binds = [];
+  let n = 0;
+  const ph = () => "?" + ++n;
+
+  if (body.text != null) {
+    const text = String(body.text || "").trim();
+    if (!text) return json({ ok: false, error: "Empty spark." }, 400);
+    if (text.length > SPARK_MAX_TEXT) {
+      return json({ ok: false, error: `Too long (${text.length}/${SPARK_MAX_TEXT}).` }, 400);
+    }
+    sets.push("text = " + ph());
+    binds.push(text);
+  }
+
+  if (body.status != null) {
+    const st = String(body.status);
+    if (!["draft", "cooling", "private"].includes(st)) {
+      return json({ ok: false, error: "Invalid status." }, 400);
+    }
+    sets.push("status = " + ph());
+    binds.push(st);
+    if (st === "cooling") {
+      let coolMin = Number(body.cool_minutes);
+      if (!Number.isFinite(coolMin) || coolMin <= 0) coolMin = SPARK_COOL_DEFAULT_MIN;
+      coolMin = Math.min(24 * 60, Math.round(coolMin));
+      sets.push("cool_until = " + ph());
+      binds.push(now + coolMin * 60 * 1000);
+    } else {
+      sets.push("cool_until = NULL");
+    }
+  } else if (body.cool_minutes != null) {
+    let coolMin = Number(body.cool_minutes);
+    if (Number.isFinite(coolMin) && coolMin > 0) {
+      coolMin = Math.min(24 * 60, Math.round(coolMin));
+      sets.push("status = 'cooling'");
+      sets.push("cool_until = " + ph());
+      binds.push(now + coolMin * 60 * 1000);
+    }
+  }
+
+  if (!sets.length) return json({ ok: false, error: "Nothing to update." }, 400);
+  sets.push("updated_at = " + ph());
+  binds.push(now);
+  const idPh = ph();
+  binds.push(id);
+
+  await env.DB.prepare("UPDATE sparks SET " + sets.join(", ") + " WHERE id = " + idPh)
+    .bind(...binds)
+    .run();
+
+  return json({ ok: true, ...(await getState(env)) });
+}
+
+function sparkShipText(text) {
+  text = String(text || "").trim();
+  if (!text) return { error: "Empty spark." };
+  if (text.length > MAX_TWEET_LEN) {
+    return {
+      error: `Too long for X (${text.length}/${MAX_TWEET_LEN}). Shorten before queueing or posting.`,
+    };
+  }
+  return { text };
+}
+
+async function queueSpark(env, id) {
+  await ensureSparkSchema(env);
+  const row = await env.DB.prepare(
+    "SELECT id, text, status, cool_until FROM sparks WHERE id = ?1"
+  )
+    .bind(id)
+    .first();
+  if (!row) return json({ ok: false, error: "Spark not found." }, 404);
+  if (row.status === "queued" || row.status === "posted") {
+    return json({ ok: false, error: "Already shipped." }, 400);
+  }
+  if (row.status === "cooling" && row.cool_until && row.cool_until > Date.now()) {
+    return json(
+      {
+        ok: false,
+        error: "Still cooling — wait or clear cool-off first.",
+        cool_until: row.cool_until,
+      },
+      400
+    );
+  }
+  const ship = sparkShipText(row.text);
+  if (ship.error) return json({ ok: false, error: ship.error }, 400);
+
+  const now = Date.now();
+  await env.DB.prepare(
+    "INSERT INTO queue (text, status, created_at) VALUES (?1, 'queued', ?2)"
+  )
+    .bind(ship.text, now)
+    .run();
+  // Grab the row we just inserted (same text + created_at).
+  const qrow = await env.DB.prepare(
+    "SELECT id FROM queue WHERE status = 'queued' AND created_at = ?1 AND text = ?2 ORDER BY id DESC LIMIT 1"
+  )
+    .bind(now, ship.text)
+    .first();
+
+  await env.DB.prepare(
+    "UPDATE sparks SET status = 'queued', queue_id = ?1, cool_until = NULL, updated_at = ?2 WHERE id = ?3"
+  )
+    .bind(qrow ? qrow.id : null, now, id)
+    .run();
+
+  return json({ ok: true, queued: true, ...(await getState(env)) });
+}
+
+async function postSparkNow(env, id) {
+  await ensureSparkSchema(env);
+  const row = await env.DB.prepare(
+    "SELECT id, text, status, cool_until FROM sparks WHERE id = ?1"
+  )
+    .bind(id)
+    .first();
+  if (!row) return json({ ok: false, error: "Spark not found." }, 404);
+  if (row.status === "posted") {
+    return json({ ok: false, error: "Already posted." }, 400);
+  }
+  if (row.status === "cooling" && row.cool_until && row.cool_until > Date.now()) {
+    return json(
+      {
+        ok: false,
+        error: "Still cooling — wait or clear cool-off first.",
+        cool_until: row.cool_until,
+      },
+      400
+    );
+  }
+  const ship = sparkShipText(row.text);
+  if (ship.error) return json({ ok: false, error: ship.error }, 400);
+  if ((await countRecentPosts(env)) >= DAILY_CAP) {
+    return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
+  }
+
+  const now = Date.now();
+  try {
+    const tweetId = await postTweet(env, ship.text);
+    const ins = await env.DB.prepare(
+      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd) VALUES (?1, 'posted', ?2, ?2, ?3, ?4)"
+    )
+      .bind(ship.text, now, tweetId, postCostUsd(ship.text))
+      .run();
+    const queueId = ins.meta && ins.meta.last_row_id;
+    await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
+      .bind(now)
+      .run();
+    await env.DB.prepare(
+      "UPDATE sparks SET status = 'posted', posted_at = ?1, queue_id = ?2, cool_until = NULL, updated_at = ?1 WHERE id = ?3"
+    )
+      .bind(now, queueId || null, id)
+      .run();
+    return json({
+      ok: true,
+      result: { posted: true, tweet_id: tweetId },
+      ...(await getState(env)),
+    });
+  } catch (err) {
+    return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
+  }
+}
+
+// Writing coach: craft feedback, never virality. Low temperature structured JSON.
+async function coachSpark(env, body) {
+  if (!env.AI) {
+    return json(
+      {
+        ok: false,
+        error: "Workers AI is not bound. Redeploy with [ai] binding = \"AI\" in wrangler.toml.",
+      },
+      500
+    );
+  }
+  const text = String(body.text || "").trim();
+  if (!text) return json({ ok: false, error: "Empty text." }, 400);
+  if (text.length > SPARK_MAX_TEXT) {
+    return json({ ok: false, error: `Too long (${text.length}/${SPARK_MAX_TEXT}).` }, 400);
+  }
+
+  // Instant local lint always included so UI has something even if AI fails.
+  const local = localCoachHints(text);
+
+  const system = [
+    "You coach raw personal writing for a private X/Twitter account.",
+    "Never optimize for virality, engagement, likes, reach, or algorithms.",
+    "Prefer concrete over abstract. Prefer lived feeling over thesis or hustle advice.",
+    "Never rewrite the author into LinkedIn/dev-Twitter voice.",
+    "Ask; don't lecture. If the text is already raw and specific, say so briefly.",
+    "Respond with ONLY a single JSON object (no markdown fences) with these keys:",
+    '{',
+    '  "honesty": "vague" | "personal" | "raw",',
+    '  "hook_type": "thesis" | "feeling" | "observation" | "punchline" | "question" | "other",',
+    '  "single_emotion": boolean,',
+    '  "abstract_flags": string[] (abstract words/phrases found, max 8),',
+    '  "bone": number 0-10 (specificity + honesty + single feeling; 10 = bone-deep),',
+    '  "question": string (ONE deepening question, max 20 words),',
+    '  "cuts": string[] (0-2 optional shorter variants of THEIR line, same voice, under 280 chars),',
+    '  "note": string (one short coach sentence, no engagement language)',
+    "}",
+  ].join("\n");
+
+  const user = [
+    "Draft to coach:",
+    "---",
+    text,
+    "---",
+    text.length > MAX_TWEET_LEN
+      ? `Note: currently ${text.length} chars (over ${MAX_TWEET_LEN} for a single post).`
+      : `Length: ${text.length}/${MAX_TWEET_LEN}.`,
+  ].join("\n");
+
+  let raw;
+  try {
+    raw = await env.AI.run(AI_MODEL, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_tokens: 500,
+      temperature: 0.35,
+    });
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (/neuron|quota|limit|429/i.test(msg)) {
+      return json(
+        {
+          ok: true,
+          coach: {
+            ...local,
+            source: "local",
+            note: "AI quota hit — showing local hints only.",
+            question: local.question,
+          },
+          model: null,
+        },
+        200
+      );
+    }
+    return json(
+      {
+        ok: true,
+        coach: {
+          ...local,
+          source: "local",
+          note: "AI unavailable — local hints only.",
+          question: local.question,
+        },
+        model: null,
+      },
+      200
+    );
+  }
+
+  const parsed = parseCoachJson(extractAiText(raw), local);
+  return json({
+    ok: true,
+    coach: { ...parsed, source: "ai" },
+    model: AI_MODEL,
+  });
+}
+
+function localCoachHints(text) {
+  const t = String(text || "");
+  const lower = t.toLowerCase();
+  const ABSTRACT = [
+    "growth",
+    "mindset",
+    "journey",
+    "hustle",
+    "grind",
+    "leverage",
+    "synergy",
+    "optimize",
+    "productivity",
+    "success",
+    "abundance",
+    "manifest",
+    "unlock",
+    "scale",
+    "disrupt",
+    "value prop",
+    "build in public",
+    "lessons learned",
+    "key takeaway",
+    "game changer",
+  ];
+  const abstract_flags = ABSTRACT.filter((w) => lower.includes(w)).slice(0, 8);
+  const hasI = /\b(i|i'm|i’ve|i've|me|my)\b/i.test(t);
+  const hasConcrete =
+    /\b(\d+|am|pm|today|yesterday|tonight|morning|night|ago|years?|months?|weeks?|days?|hours?)\b/i.test(
+      t
+    ) || /\b(said|told|walked|sat|stood|looked|heard|felt|cried|laughed)\b/i.test(t);
+  let honesty = "vague";
+  if (hasI && (hasConcrete || t.length < 120)) honesty = "personal";
+  if (hasI && hasConcrete && abstract_flags.length === 0) honesty = "raw";
+  if (!hasI && abstract_flags.length) honesty = "vague";
+
+  let hook_type = "other";
+  if (/\?\s*$/.test(t.trim())) hook_type = "question";
+  else if (/^(yeah|honestly|i |my |when |after |before )/i.test(t.trim())) hook_type = "feeling";
+  else if (/\b(is|are|means|because)\b/i.test(t) && t.length > 80) hook_type = "thesis";
+  else if (t.length < 100 && /[.!]$/.test(t.trim()) === false) hook_type = "observation";
+
+  let bone = 4;
+  if (hasI) bone += 2;
+  if (hasConcrete) bone += 2;
+  if (abstract_flags.length) bone -= Math.min(3, abstract_flags.length);
+  if (t.length > MAX_TWEET_LEN) bone -= 1;
+  bone = Math.max(0, Math.min(10, bone));
+
+  let question = "What is the smallest true detail you left out?";
+  if (honesty === "vague") question = "What did you see or hear in the actual moment?";
+  else if (!hasI) question = "Where are you in this sentence?";
+  else if (t.length > MAX_TWEET_LEN) question = "If you had to keep one line only, which is it?";
+
+  return {
+    honesty,
+    hook_type,
+    single_emotion: !/\band also\b|\bplus\b|\bhowever\b/i.test(t),
+    abstract_flags,
+    bone,
+    question,
+    cuts: [],
+    note: abstract_flags.length
+      ? "Some abstract words — swap one for something you could photograph."
+      : hasI
+        ? "Keep going — stay concrete."
+        : "Try putting yourself in the frame.",
+  };
+}
+
+function parseCoachJson(raw, fallback) {
+  const base = { ...fallback };
+  let s = String(raw || "").trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  try {
+    const o = JSON.parse(s);
+    const honesty = ["vague", "personal", "raw"].includes(o.honesty) ? o.honesty : base.honesty;
+    const hook_type = [
+      "thesis",
+      "feeling",
+      "observation",
+      "punchline",
+      "question",
+      "other",
+    ].includes(o.hook_type)
+      ? o.hook_type
+      : base.hook_type;
+    let bone = Number(o.bone);
+    if (!Number.isFinite(bone)) bone = base.bone;
+    bone = Math.max(0, Math.min(10, Math.round(bone)));
+    const abstract_flags = Array.isArray(o.abstract_flags)
+      ? o.abstract_flags.map((x) => String(x)).filter(Boolean).slice(0, 8)
+      : base.abstract_flags;
+    const cuts = Array.isArray(o.cuts)
+      ? o.cuts
+          .map((x) => String(x || "").trim())
+          .filter((x) => x && x.length <= MAX_TWEET_LEN)
+          .slice(0, 2)
+      : [];
+    const question = String(o.question || base.question || "")
+      .trim()
+      .slice(0, 160);
+    const note = String(o.note || base.note || "")
+      .trim()
+      .slice(0, 240);
+    return {
+      honesty,
+      hook_type,
+      single_emotion: o.single_emotion !== false,
+      abstract_flags,
+      bone,
+      question: question || base.question,
+      cuts,
+      note: note || base.note,
+    };
+  } catch (_) {
+    return base;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -63,6 +63,12 @@ assets** (NOT Pages) + **D1** + an hourly **cron**. Live at
   `POST /api/review/generate` → `@cf/mistralai/mistral-small-3.1-24b-instruct`
   using recent posted/queued/pending samples, then `seedReview`. Free Neurons
   are daily on the CF account; no API key secret for Workers AI.
+- **Sparks vault + coach**: table `sparks` (lazy `ensureSparkSchema` on state).
+  Landing composer: Queue | Lightning (→ vault) | Post now. Coach:
+  `POST /api/spark/coach` (honesty/bone/question — never virality). Modes
+  off/local/pause in localStorage `xqueue_coach_mode`. Vault actions:
+  edit, cool 1h, queue, post, delete. Ship paths still enforce 280; vault
+  allows up to 4000 for messy drafts.
 
 ## Verifying changes
 

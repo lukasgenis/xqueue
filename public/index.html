@@ -95,16 +95,103 @@
       border-radius: 14px;
       padding: 14px;
     }
+    .composer-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      margin-bottom: 6px;
+    }
+    .composer-head .ctl-label { margin: 0; }
+    .coach-mode {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted);
+    }
+    .coach-mode select {
+      font: inherit; font-size: 12px; color: var(--text);
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 4px 10px; outline: none;
+    }
+    .coach-mode select:focus { border-color: var(--accent-dim); }
     textarea {
-      width: 100%; min-height: 84px; resize: vertical;
+      width: 100%; min-height: 96px; resize: vertical;
       background: transparent; border: 0; color: var(--text);
       font: inherit; outline: none;
     }
-    .composer-bottom { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+    .composer-bottom { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .count.over { color: var(--danger); }
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
+    button.lightning {
+      border-color: #6b5a1e; color: #f0d060; background: #1c1a12;
+    }
+    button.lightning:hover:not(:disabled) { border-color: #c9a227; color: #ffe08a; }
+    button.vault-btn { font-size: 13px; padding: 6px 12px; }
+    button.vault-btn .badge-count { margin-left: 2px; }
+    .coach-panel {
+      margin-top: 10px; padding: 10px 12px;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+      font-size: 13px; line-height: 1.4;
+    }
+    .coach-panel[hidden] { display: none !important; }
+    .coach-row {
+      display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+      margin-bottom: 8px; font-variant-numeric: tabular-nums;
+    }
+    .coach-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted);
+    }
+    .coach-pill b { color: var(--text); font-weight: 600; text-transform: none; letter-spacing: 0; font-size: 13px; }
+    .coach-pill.raw b { color: var(--ok); }
+    .coach-pill.vague b { color: var(--danger); }
+    .coach-pill.personal b { color: #e0b84a; }
+    .coach-bone { letter-spacing: .06em; color: var(--muted); }
+    .coach-bone .lit { color: #e0b84a; }
+    .coach-q {
+      margin: 0 0 6px; color: var(--text); font-size: 14px; font-weight: 500;
+    }
+    .coach-q::before { content: "Q · "; color: var(--muted); font-weight: 400; }
+    .coach-note { margin: 0; color: var(--muted); font-size: 12px; }
+    .coach-flags { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
+    .coach-flag {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid #5c4a2a; color: #e0b84a; background: #1c1810;
+    }
+    .coach-cuts { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .coach-cut {
+      text-align: left; width: 100%; font-size: 13px; padding: 8px 10px;
+      border-radius: 8px; white-space: pre-wrap; line-height: 1.35;
+    }
+    .coach-status { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .vault-panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px; margin-top: 8px;
+    }
+    .vault-panel[hidden] { display: none !important; }
+    .vault-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .vault-head .label {
+      font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+    }
+    .vault-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+    .item.spark .badge.cooling { color: #e0b84a; border-color: #5c4a2a; }
+    .item.spark .badge.private { color: var(--muted); }
+    .item.spark .badge.draft { color: var(--accent); border-color: var(--accent-dim); }
+    @media (max-width: 520px) {
+      .composer-bottom button { padding: 8px 12px; font-size: 14px; }
+      .item.spark { flex-direction: column; align-items: stretch; }
+      .item.spark .body { width: 100%; cursor: pointer; }
+      .item.spark .item-actions { display: none; }
+      .item.spark.expanded .item-actions {
+        display: flex; width: 100%; gap: 8px; flex-wrap: wrap;
+        margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+      }
+      .item.spark.expanded .item-actions button {
+        flex: 1; min-width: 0; padding: 10px 8px; font-size: 13px;
+      }
+    }
     .tab-summary { font-size: 12px; color: var(--muted); margin: -4px 2px 12px; font-variant-numeric: tabular-nums; }
     /* Randomise: bare shuffle icon on the tabs row (desktop + mobile). */
     #shuffleQueue {
@@ -488,15 +575,44 @@
       </div>
     </header>
 
-    <div class="composer">
-      <textarea id="text" placeholder="What's happening? (Enter to queue, Shift+Enter for newline)"></textarea>
+    <div class="composer" id="composer">
+      <div class="composer-head">
+        <span class="ctl-label">Write</span>
+        <label class="coach-mode" title="Writing coach — honesty &amp; specificity, not virality">
+          Coach
+          <select id="coachMode" aria-label="Coach mode">
+            <option value="off">off</option>
+            <option value="local">local</option>
+            <option value="pause" selected>pause</option>
+          </select>
+        </label>
+      </div>
+      <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue = everyday · Lightning = vault · Post now = ship"></textarea>
+      <div class="coach-panel" id="coachPanel" hidden>
+        <div class="coach-row" id="coachMeta"></div>
+        <p class="coach-q" id="coachQuestion" hidden></p>
+        <p class="coach-note" id="coachNote" hidden></p>
+        <div class="coach-flags" id="coachFlags" hidden></div>
+        <div class="coach-cuts" id="coachCuts" hidden></div>
+        <div class="coach-status" id="coachStatus"></div>
+      </div>
       <div class="composer-bottom">
         <span class="count" id="count">0 / 280</span>
         <span class="cost" id="costEst"></span>
         <span class="spacer"></span>
-        <button class="btn-secondary" id="postNow">Post now</button>
-        <button class="primary" id="add">Queue</button>
+        <button type="button" class="vault-btn btn-secondary" id="vaultToggle" title="Open sparks vault">Vault<span class="badge-count" id="vaultBadge" hidden>0</span></button>
+        <button type="button" class="lightning" id="lightning" title="Save to vault (feeling post)" disabled>Lightning</button>
+        <button type="button" class="btn-secondary" id="postNow" disabled>Post now</button>
+        <button type="button" class="primary" id="add" disabled>Queue</button>
       </div>
+    </div>
+
+    <div class="vault-panel" id="vaultPanel" hidden>
+      <div class="vault-head">
+        <span class="label" id="vaultLabel">Vault — sparks</span>
+        <button type="button" class="btn-secondary" id="vaultClose">Close</button>
+      </div>
+      <div class="vault-list" id="vaultList"></div>
     </div>
 
     <div class="controls">
@@ -641,10 +757,24 @@
     let swipeBusy = false; // block double-tap during animation/request
     let swipeSession = { accepted: 0, rejected: 0 }; // client-side counters for this open
     let swipeEnterBelow = false; // next card should animate in from below
+    let vaultOpen = false;
+    let sparkExpandedId = null;
+    let sparkEditingId = null;
+    let coachTimer = null;
+    let coachReqId = 0;
+    let lastCoachKey = "";
     // On touch devices there's no Shift key and Return should insert a newline,
     // so we don't hijack Enter to submit — the Queue/Save buttons do that instead.
     const isTouch = window.matchMedia("(pointer: coarse)").matches;
     const MAX_LEN = 280;
+    const SPARK_MAX = 4000;
+    const COACH_MODE_KEY = "xqueue_coach_mode";
+    const ABSTRACT_WORDS = [
+      "growth", "mindset", "journey", "hustle", "grind", "leverage", "synergy",
+      "optimize", "productivity", "success", "abundance", "manifest", "unlock",
+      "scale", "disrupt", "value prop", "build in public", "lessons learned",
+      "key takeaway", "game changer",
+    ];
 
     function showLogin(error) {
       const el = document.getElementById("login");
@@ -816,6 +946,7 @@
       });
 
       updateReviewChrome();
+      updateVaultChrome();
 
       // Usage + next line
       const paused = state.interval_hours === 0;
@@ -838,7 +969,7 @@
       const q = document.getElementById("queue");
       q.innerHTML = "";
       if (!state.queued.length) {
-        q.innerHTML = '<div class="empty">Nothing queued. Type above and hit Enter.</div>';
+        q.innerHTML = '<div class="empty">Nothing queued. Type above → Queue (or Enter).</div>';
       }
       state.queued.slice(0, queueVisible).forEach((item, i) => {
         const el = document.createElement("div");
@@ -1152,6 +1283,14 @@
       } catch (e) { /* handled in api() */ }
     }
 
+    function setComposerBusy(busy) {
+      ["add", "postNow", "lightning"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (busy) el.disabled = true;
+      });
+      if (!busy) updateCount();
+    }
+
     async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
@@ -1166,23 +1305,49 @@
         });
         if (!ok) return;
       }
-      const q = document.getElementById("add");
-      const p = document.getElementById("postNow");
-      q.disabled = true; p.disabled = true;
+      setComposerBusy(true);
       try {
         const path = immediate ? "/api/post-text" : "/api/queue";
         const res = await api(path, { method: "POST", body: JSON.stringify({ text }) });
         if (res.ok) {
           state = res;
           ta.value = "";
+          clearCoachPanel();
           render();
           toast(immediate ? "Posted ✅" : "Queued");
         } else {
           toast(res.error || (immediate ? "Post failed" : "Failed to queue"));
         }
       } finally {
-        // Re-derive disabled from current text (don't blindly re-enable).
-        updateCount();
+        setComposerBusy(false);
+      }
+    }
+
+    // Lightning → vault (feeling draft). Allows longer mess; ship path still needs ≤280.
+    async function saveLightning() {
+      const ta = document.getElementById("text");
+      const text = ta.value.trim();
+      if (!text || text.length > SPARK_MAX) return;
+      setComposerBusy(true);
+      try {
+        const res = await api("/api/sparks", {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) {
+          state = res;
+          ta.value = "";
+          clearCoachPanel();
+          vaultOpen = true;
+          render();
+          toast(text.length > MAX_LEN
+            ? "Lightning saved ⚡ — shorten to ≤280 before queue/post"
+            : "Lightning saved ⚡");
+        } else {
+          toast(res.error || "Failed to save lightning");
+        }
+      } finally {
+        setComposerBusy(false);
       }
     }
 
@@ -1190,11 +1355,15 @@
       const ta = document.getElementById("text");
       const n = ta.value.length;
       const c = document.getElementById("count");
-      c.textContent = `${n} / ${MAX_LEN}`;
+      // Soft: show 280 for ship paths; note over when past it.
+      c.textContent = n > MAX_LEN ? `${n} / ${MAX_LEN} · vault ok` : `${n} / ${MAX_LEN}`;
       c.classList.toggle("over", n > MAX_LEN);
-      const disabled = n === 0 || n > MAX_LEN;
-      document.getElementById("add").disabled = disabled;
-      document.getElementById("postNow").disabled = disabled;
+      const empty = n === 0;
+      const shipOk = !empty && n <= MAX_LEN;
+      const vaultOk = !empty && n <= SPARK_MAX;
+      document.getElementById("add").disabled = !shipOk;
+      document.getElementById("postNow").disabled = !shipOk;
+      document.getElementById("lightning").disabled = !vaultOk;
 
       // Live cost estimate for the current post (flags links — 13x pricier).
       const costEl = document.getElementById("costEst");
@@ -1202,6 +1371,380 @@
       const usd = link ? 0.2 : 0.015;
       costEl.textContent = n === 0 ? "" : "· " + aud(usd) + (link ? " · link" : "");
       costEl.classList.toggle("link", link);
+
+      scheduleCoach();
+    }
+
+    // ---- Writing coach (local instant + optional Mistral on pause) ----
+    function coachMode() {
+      const sel = document.getElementById("coachMode");
+      return sel ? sel.value : "off";
+    }
+
+    function clearCoachPanel() {
+      lastCoachKey = "";
+      const panel = document.getElementById("coachPanel");
+      if (panel) panel.hidden = true;
+      document.getElementById("coachStatus").textContent = "";
+    }
+
+    function localCoach(text) {
+      const t = String(text || "");
+      const lower = t.toLowerCase();
+      const abstract_flags = ABSTRACT_WORDS.filter((w) => lower.includes(w)).slice(0, 8);
+      const hasI = /\b(i|i'm|i’ve|i've|me|my)\b/i.test(t);
+      const hasConcrete =
+        /\b(\d+|am|pm|today|yesterday|tonight|morning|night|ago|years?|months?|weeks?|days?|hours?)\b/i.test(t) ||
+        /\b(said|told|walked|sat|stood|looked|heard|felt|cried|laughed)\b/i.test(t);
+      let honesty = "vague";
+      if (hasI && (hasConcrete || t.length < 120)) honesty = "personal";
+      if (hasI && hasConcrete && !abstract_flags.length) honesty = "raw";
+      let hook_type = "other";
+      if (/\?\s*$/.test(t.trim())) hook_type = "question";
+      else if (/^(yeah|honestly|i |my |when |after |before )/i.test(t.trim())) hook_type = "feeling";
+      else if (/\b(is|are|means|because)\b/i.test(t) && t.length > 80) hook_type = "thesis";
+      else if (t.length < 100) hook_type = "observation";
+      let bone = 4;
+      if (hasI) bone += 2;
+      if (hasConcrete) bone += 2;
+      if (abstract_flags.length) bone -= Math.min(3, abstract_flags.length);
+      if (t.length > MAX_LEN) bone -= 1;
+      bone = Math.max(0, Math.min(10, bone));
+      let question = "What is the smallest true detail you left out?";
+      if (honesty === "vague") question = "What did you see or hear in the actual moment?";
+      else if (!hasI) question = "Where are you in this sentence?";
+      else if (t.length > MAX_LEN) question = "If you had to keep one line only, which is it?";
+      return {
+        honesty, hook_type, single_emotion: true, abstract_flags, bone, question, cuts: [],
+        note: abstract_flags.length
+          ? "Some abstract words — swap one for something you could photograph."
+          : hasI ? "Keep going — stay concrete." : "Try putting yourself in the frame.",
+        source: "local",
+      };
+    }
+
+    function boneDotsHtml(n) {
+      n = Math.max(0, Math.min(10, Math.round(Number(n) || 0)));
+      let lit = "";
+      let dim = "";
+      for (let i = 0; i < 10; i++) {
+        if (i < n) lit += "●";
+        else dim += "○";
+      }
+      return `<span class="lit">${lit}</span>${dim}`;
+    }
+
+    function showCoach(coach, statusText) {
+      if (!coach) return;
+      const panel = document.getElementById("coachPanel");
+      panel.hidden = false;
+      const meta = document.getElementById("coachMeta");
+      const hon = coach.honesty || "—";
+      meta.innerHTML =
+        `<span class="coach-pill ${hon}"><span>Honesty</span> <b>${hon}</b></span>` +
+        `<span class="coach-pill"><span>Hook</span> <b>${coach.hook_type || "—"}</b></span>` +
+        `<span class="coach-pill"><span>Bone</span> <b class="coach-bone">${boneDotsHtml(coach.bone)}</b></span>`;
+
+      const q = document.getElementById("coachQuestion");
+      if (coach.question) {
+        q.hidden = false;
+        q.textContent = coach.question;
+      } else {
+        q.hidden = true;
+      }
+      const note = document.getElementById("coachNote");
+      if (coach.note) {
+        note.hidden = false;
+        note.textContent = coach.note;
+      } else {
+        note.hidden = true;
+      }
+      const flags = document.getElementById("coachFlags");
+      flags.innerHTML = "";
+      if (coach.abstract_flags && coach.abstract_flags.length) {
+        flags.hidden = false;
+        coach.abstract_flags.forEach((w) => {
+          const s = document.createElement("span");
+          s.className = "coach-flag";
+          s.textContent = w;
+          flags.appendChild(s);
+        });
+      } else {
+        flags.hidden = true;
+      }
+      const cuts = document.getElementById("coachCuts");
+      cuts.innerHTML = "";
+      if (coach.cuts && coach.cuts.length) {
+        cuts.hidden = false;
+        coach.cuts.forEach((line) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "coach-cut";
+          b.textContent = line;
+          b.title = "Use this line";
+          b.onclick = () => {
+            document.getElementById("text").value = line;
+            updateCount();
+            document.getElementById("text").focus();
+          };
+          cuts.appendChild(b);
+        });
+      } else {
+        cuts.hidden = true;
+      }
+      document.getElementById("coachStatus").textContent = statusText || (coach.source === "ai" ? "coach · ai" : "coach · local");
+    }
+
+    function scheduleCoach() {
+      if (coachTimer) clearTimeout(coachTimer);
+      const mode = coachMode();
+      const text = document.getElementById("text").value.trim();
+      if (mode === "off" || !text) {
+        clearCoachPanel();
+        return;
+      }
+      // Local is instant on every pause-ish input; show immediately then maybe AI.
+      if (mode === "local" || mode === "pause") {
+        showCoach(localCoach(text), mode === "local" ? "coach · local" : "coach · local · …");
+      }
+      if (mode !== "pause") return;
+      coachTimer = setTimeout(() => runAiCoach(text), 1100);
+    }
+
+    async function runAiCoach(text) {
+      text = (text || "").trim();
+      if (!text || coachMode() !== "pause") return;
+      const key = text;
+      if (key === lastCoachKey) return;
+      const id = ++coachReqId;
+      document.getElementById("coachStatus").textContent = "coach · thinking…";
+      try {
+        const res = await api("/api/spark/coach", {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        if (id !== coachReqId) return; // stale
+        if (res.ok && res.coach) {
+          lastCoachKey = key;
+          showCoach(res.coach, res.coach.source === "ai" ? "coach · ai" : "coach · local");
+        } else {
+          showCoach(localCoach(text), "coach · local");
+        }
+      } catch (_) {
+        if (id !== coachReqId) return;
+        showCoach(localCoach(text), "coach · local");
+      }
+    }
+
+    // ---- Vault ----
+    function updateVaultChrome() {
+      const sparks = (state && state.sparks) || { items: [], count: 0 };
+      const n = sparks.count || 0;
+      const badge = document.getElementById("vaultBadge");
+      if (n > 0) {
+        badge.hidden = false;
+        badge.textContent = String(n);
+      } else {
+        badge.hidden = true;
+      }
+      document.getElementById("vaultLabel").textContent =
+        n ? `Vault — ${n} spark${n === 1 ? "" : "s"}` : "Vault — empty";
+      document.getElementById("vaultPanel").hidden = !vaultOpen;
+      if (vaultOpen) renderVaultList();
+    }
+
+    function renderVaultList() {
+      const list = document.getElementById("vaultList");
+      list.innerHTML = "";
+      const items = (state.sparks && state.sparks.items) || [];
+      if (!items.length) {
+        list.innerHTML = '<div class="empty">No sparks yet. Hit Lightning to save a feeling draft.</div>';
+        return;
+      }
+      const now = Date.now();
+      items.forEach((item) => {
+        const el = document.createElement("div");
+        el.className = "item spark" + (item.id === sparkExpandedId ? " expanded" : "");
+        const cooling = item.status === "cooling" && item.cool_until && item.cool_until > now;
+        const len = (item.text || "").length;
+        const over = len > MAX_LEN;
+
+        if (item.id === sparkEditingId) {
+          const ta = document.createElement("textarea");
+          ta.className = "edit-area";
+          ta.value = item.text;
+          const bar = document.createElement("div");
+          bar.className = "edit-bar";
+          const cnt = document.createElement("span");
+          cnt.className = "count";
+          const save = document.createElement("button");
+          save.className = "primary";
+          save.textContent = "Save";
+          const cancel = document.createElement("button");
+          cancel.textContent = "Cancel";
+          const setCnt = () => {
+            const n = ta.value.length;
+            cnt.textContent = n > MAX_LEN ? `${n} / ${MAX_LEN} · vault` : `${n} / ${MAX_LEN}`;
+            cnt.classList.toggle("over", n > MAX_LEN);
+            save.disabled = n === 0 || n > SPARK_MAX;
+          };
+          ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
+          save.onclick = async () => {
+            const text = ta.value.trim();
+            if (!text || text.length > SPARK_MAX) return;
+            try {
+              const res = await api("/api/sparks/" + item.id, {
+                method: "PATCH",
+                body: JSON.stringify({ text }),
+              });
+              if (res.ok) {
+                state = res;
+                sparkEditingId = null;
+                render();
+                toast("Spark updated");
+              } else toast(res.error || "Update failed");
+            } catch (_) {}
+          };
+          cancel.onclick = () => { sparkEditingId = null; renderVaultList(); };
+          bar.append(cnt, document.createElement("span"));
+          bar.lastChild.className = "spacer";
+          bar.append(cancel, save);
+          const body = document.createElement("div");
+          body.className = "body";
+          body.append(ta, bar);
+          el.appendChild(body);
+          list.appendChild(el);
+          setCnt();
+          autoGrow(ta);
+          ta.focus();
+          return;
+        }
+
+        const body = document.createElement("div");
+        body.className = "body";
+        const txt = document.createElement("div");
+        txt.className = "txt";
+        txt.textContent = item.text;
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const badge = document.createElement("span");
+        badge.className = "badge " + (item.status || "draft");
+        badge.textContent = cooling
+          ? "cooling " + fmtCountdown(item.cool_until)
+          : (item.status || "draft");
+        meta.appendChild(badge);
+        const charMeta = document.createElement("span");
+        charMeta.className = "char-meta" + (over ? " over" : "");
+        charMeta.textContent = len + " chars";
+        meta.appendChild(charMeta);
+        body.append(txt, meta);
+
+        const actions = document.createElement("div");
+        actions.className = "item-actions";
+        const mk = (label, title, fn) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = label;
+          b.title = title;
+          b.onclick = (e) => { e.stopPropagation(); fn(); };
+          return b;
+        };
+        actions.appendChild(mk("Edit", "Edit spark", () => {
+          sparkEditingId = item.id;
+          sparkExpandedId = null;
+          renderVaultList();
+        }));
+        if (!cooling) {
+          const qBtn = mk("Queue", "Add to queue", () => sparkQueue(item));
+          qBtn.disabled = over;
+          actions.appendChild(qBtn);
+          const pBtn = mk("Post", "Post to X now", () => sparkPost(item));
+          pBtn.disabled = over;
+          actions.appendChild(pBtn);
+        } else {
+          actions.appendChild(mk("Uncool", "End cool-off", async () => {
+            try {
+              const res = await api("/api/sparks/" + item.id, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "draft" }),
+              });
+              if (res.ok) { state = res; render(); toast("Cool-off cleared"); }
+              else toast(res.error || "Failed");
+            } catch (_) {}
+          }));
+        }
+        actions.appendChild(mk("Cool 1h", "Cool off for 1 hour", async () => {
+          try {
+            const res = await api("/api/sparks/" + item.id, {
+              method: "PATCH",
+              body: JSON.stringify({ status: "cooling", cool_minutes: 60 }),
+            });
+            if (res.ok) { state = res; render(); toast("Cooling 1h"); }
+            else toast(res.error || "Failed");
+          } catch (_) {}
+        }));
+        actions.appendChild(mk("⌫", "Delete", async () => {
+          const ok = await confirmDialog({
+            title: "Delete spark?",
+            body: item.text,
+            quote: true,
+            danger: true,
+            confirmLabel: "Delete",
+          });
+          if (!ok) return;
+          try {
+            const res = await api("/api/sparks/" + item.id, { method: "DELETE" });
+            if (res.ok) { state = res; render(); toast("Deleted"); }
+          } catch (_) {}
+        }));
+
+        el.append(body, actions);
+        el.addEventListener("click", (e) => {
+          if (e.target.closest("button")) return;
+          if (isTouch) {
+            sparkExpandedId = sparkExpandedId === item.id ? null : item.id;
+            renderVaultList();
+          }
+        });
+        list.appendChild(el);
+      });
+    }
+
+    async function sparkQueue(item) {
+      if ((item.text || "").length > MAX_LEN) {
+        toast("Shorten to ≤280 first");
+        return;
+      }
+      try {
+        const res = await api("/api/sparks/" + item.id + "/queue", { method: "POST" });
+        if (res.ok) {
+          state = res;
+          render();
+          toast("Queued from vault");
+        } else toast(res.error || "Queue failed");
+      } catch (_) {}
+    }
+
+    async function sparkPost(item) {
+      if ((item.text || "").length > MAX_LEN) {
+        toast("Shorten to ≤280 first");
+        return;
+      }
+      const ok = await confirmDialog({
+        title: "Post spark to X now?",
+        body: item.text,
+        quote: true,
+        confirmLabel: "Post now",
+      });
+      if (!ok) return;
+      try {
+        const res = await api("/api/sparks/" + item.id + "/post", { method: "POST" });
+        if (res.ok) {
+          state = res;
+          render();
+          toast("Posted ✅");
+        } else toast(res.error || "Post failed");
+      } catch (_) {}
     }
 
     document.getElementById("text").addEventListener("input", updateCount);
@@ -1210,11 +1753,31 @@
         e.preventDefault();
         const n = document.getElementById("text").value.length;
         const t = document.getElementById("text").value.trim();
-        if (t && n <= MAX_LEN) add(false); // Enter queues; Post now is an explicit click
+        if (t && n <= MAX_LEN) add(false); // Enter queues; Lightning / Post now are explicit
       }
     });
     document.getElementById("add").addEventListener("click", () => add(false));
     document.getElementById("postNow").addEventListener("click", () => add(true));
+    document.getElementById("lightning").addEventListener("click", () => saveLightning());
+    document.getElementById("vaultToggle").addEventListener("click", () => {
+      vaultOpen = !vaultOpen;
+      updateVaultChrome();
+    });
+    document.getElementById("vaultClose").addEventListener("click", () => {
+      vaultOpen = false;
+      updateVaultChrome();
+    });
+    // Restore coach preference
+    (function initCoachMode() {
+      const sel = document.getElementById("coachMode");
+      const saved = localStorage.getItem(COACH_MODE_KEY);
+      if (saved && ["off", "local", "pause"].includes(saved)) sel.value = saved;
+      sel.addEventListener("change", () => {
+        localStorage.setItem(COACH_MODE_KEY, sel.value);
+        lastCoachKey = "";
+        scheduleCoach();
+      });
+    })();
 
     // Queue / History tabs
     document.getElementById("tabQueue").addEventListener("click", () => { activeTab = "queue"; applyTab(); });

@@ -60,3 +60,18 @@ CREATE TABLE IF NOT EXISTS review_undo (
 );
 
 INSERT OR IGNORE INTO review_undo (id) VALUES (1);
+
+-- Sparks vault: feeling-first drafts (Lightning), separate from the production queue.
+-- status: draft | cooling | private | queued | posted
+CREATE TABLE IF NOT EXISTS sparks (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  text       TEXT    NOT NULL,
+  status     TEXT    NOT NULL DEFAULT 'draft',
+  cool_until INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  posted_at  INTEGER,
+  queue_id   INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks (status, updated_at);

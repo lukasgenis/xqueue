@@ -9,11 +9,16 @@ Mac-mini dependency, always on.
 
 ## Features
 
-- **Queue** — write a post, hit **Queue** (or Enter on desktop); it drops to the
-  bottom. The top of the queue is what posts next.
-- **Post now** — post immediately (with a themed confirm) instead of queueing:
-  the composer's **Post now** for new text, or the **➤** button on any queued
-  item to jump it to the front. Both record to history and count toward the cap.
+- **Composer (home)** — one top box for everything. **Queue** (or Enter on
+  desktop) for everyday posts; **Lightning** saves a feeling draft into the
+  **Vault** (messy/long OK until you ship); **Post now** ships immediately
+  (confirm). Optional **Coach** (off / local / pause) gives honesty, bone,
+  hook type, and one deepening question — not a virality score. Pause mode
+  calls Workers AI (Mistral) after you stop typing.
+- **Vault** — sparks from Lightning: edit, cool-off 1h, queue, post now, or
+  delete. Cooling blocks queue/post until the timer ends (or you clear it).
+- **Queue** — queued posts drain on your interval. Top of the list posts next.
+- **Post now** — also available per queued item (**➤**) and per vault spark.
 - **Interval** — 1/3/6/9/12/24 h toggle controlling how fast the queue drains.
   Global to the whole queue; stored in D1, so changing it never needs a redeploy.
 - **Edit / reorder / delete** — edit a queued post inline (auto-growing box),
@@ -137,6 +142,12 @@ top item** (`POST /api/post-now`) both still respect the daily cap.
 | GET | `/api/review` | Deck state (also embedded in `/api/state` as `review`) |
 | POST | `/api/review` | Seed deck `{texts:[], mode:"replace"\|"append"}` |
 | POST | `/api/review/generate` | AI draft into deck `{count?, mode?, topic?}` |
+| POST | `/api/sparks` | Save lightning draft `{text, cool_minutes?}` |
+| PATCH | `/api/sparks/:id` | Edit spark `{text?}` / status `{status, cool_minutes?}` |
+| DELETE | `/api/sparks/:id` | Delete spark |
+| POST | `/api/sparks/:id/queue` | Move spark → queue (≤280) |
+| POST | `/api/sparks/:id/post` | Post spark to X now (≤280) |
+| POST | `/api/spark/coach` | Writing coach JSON `{text}` |
 | DELETE | `/api/review` | Empty the whole deck |
 | PATCH | `/api/review/:id` | Edit a deck item `{text}` |
 | DELETE | `/api/review/:id` | Remove one deck item |
