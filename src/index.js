@@ -776,7 +776,7 @@ async function postSparkNow(env, id) {
   }
 }
 
-// Writing coach: craft feedback, never virality. Low temperature structured JSON.
+// Writing coach: craft feedback, never virality. Question + cuts always from AI.
 async function coachSpark(env, body) {
   if (!env.AI) {
     return json(
@@ -793,36 +793,35 @@ async function coachSpark(env, body) {
     return json({ ok: false, error: `Too long (${text.length}/${SPARK_MAX_TEXT}).` }, 400);
   }
 
-  // Instant local lint always included so UI has something even if AI fails.
-  const local = localCoachHints(text);
+  // Cheap lint only (flags / rough scores). Never used as the question source.
+  const lint = localCoachLint(text);
 
   const system = [
-    "You coach raw personal writing for a private X/Twitter account.",
+    "You are a sharp writing coach for raw personal posts on X/Twitter.",
     "Never optimize for virality, engagement, likes, reach, or algorithms.",
     "Prefer concrete over abstract. Prefer lived feeling over thesis or hustle advice.",
-    "Never rewrite the author into LinkedIn/dev-Twitter voice.",
-    "Ask; don't lecture. If the text is already raw and specific, say so briefly.",
-    "Respond with ONLY a single JSON object (no markdown fences) with these keys:",
-    '{',
-    '  "honesty": "vague" | "personal" | "raw",',
-    '  "hook_type": "thesis" | "feeling" | "observation" | "punchline" | "question" | "other",',
-    '  "single_emotion": boolean,',
-    '  "abstract_flags": string[] (abstract words/phrases found, max 8),',
-    '  "bone": number 0-10 (specificity + honesty + single feeling; 10 = bone-deep),',
-    '  "question": string (ONE deepening question, max 20 words),',
-    '  "cuts": string[] (0-2 optional shorter variants of THEIR line, same voice, under 280 chars),',
-    '  "note": string (one short coach sentence, no engagement language)',
-    "}",
+    "Never rewrite the author into LinkedIn or generic founder-Twitter voice.",
+    "You MUST answer with a single JSON object only. No markdown fences. No prose outside JSON.",
+    "Required keys:",
+    '- honesty: "vague" | "personal" | "raw"',
+    '- hook_type: "thesis" | "feeling" | "observation" | "punchline" | "question" | "other"',
+    "- single_emotion: boolean",
+    "- abstract_flags: string[] (abstract words/phrases you noticed, max 8, may be empty)",
+    "- bone: integer 0-10 (specificity + honesty + single feeling; 10 = bone-deep)",
+    "- question: string — ONE specific deepening question about THIS draft (max 22 words). Must be original and concrete. Never generic.",
+    "- cuts: string[] — EXACTLY 1 or 2 alternate tighter lines in the author's voice (each under 280 chars). These are suggestions they can tap. Required.",
+    "- note: string — one short coach sentence (no engagement language)",
   ].join("\n");
 
   const user = [
-    "Draft to coach:",
-    "---",
+    "Coach this draft. Return JSON only.",
+    "",
+    "DRAFT:",
     text,
-    "---",
+    "",
     text.length > MAX_TWEET_LEN
-      ? `Note: currently ${text.length} chars (over ${MAX_TWEET_LEN} for a single post).`
-      : `Length: ${text.length}/${MAX_TWEET_LEN}.`,
+      ? `(${text.length} chars — over ${MAX_TWEET_LEN}; at least one cut must be a single post-ready line ≤${MAX_TWEET_LEN}.)`
+      : `(${text.length}/${MAX_TWEET_LEN} chars)`,
   ].join("\n");
 
   let raw;
@@ -832,42 +831,31 @@ async function coachSpark(env, body) {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      max_tokens: 500,
-      temperature: 0.35,
+      max_tokens: 900,
+      temperature: 0.45,
     });
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
     if (/neuron|quota|limit|429/i.test(msg)) {
-      return json(
-        {
-          ok: true,
-          coach: {
-            ...local,
-            source: "local",
-            note: "AI quota hit — showing local hints only.",
-            question: local.question,
-          },
-          model: null,
-        },
-        200
-      );
+      return json({ ok: false, error: "AI quota hit (Neurons). Try again later.", lint }, 429);
     }
+    return json({ ok: false, error: "AI request failed: " + msg, lint }, 502);
+  }
+
+  const extracted = extractAiText(raw);
+  const parsed = parseCoachJson(extracted, lint);
+  if (!parsed || !parsed.question) {
     return json(
       {
-        ok: true,
-        coach: {
-          ...local,
-          source: "local",
-          note: "AI unavailable — local hints only.",
-          question: local.question,
-        },
-        model: null,
+        ok: false,
+        error: "Couldn't parse coach response. Try again.",
+        lint,
+        debug: String(extracted || "").slice(0, 280),
       },
-      200
+      502
     );
   }
 
-  const parsed = parseCoachJson(extractAiText(raw), local);
   return json({
     ok: true,
     coach: { ...parsed, source: "ai" },
@@ -875,7 +863,8 @@ async function coachSpark(env, body) {
   });
 }
 
-function localCoachHints(text) {
+// Local lint only — abstract flags + rough scores. No hardcoded questions.
+function localCoachLint(text) {
   const t = String(text || "");
   const lower = t.toLowerCase();
   const ABSTRACT = [
@@ -924,78 +913,104 @@ function localCoachHints(text) {
   if (t.length > MAX_TWEET_LEN) bone -= 1;
   bone = Math.max(0, Math.min(10, bone));
 
-  let question = "What is the smallest true detail you left out?";
-  if (honesty === "vague") question = "What did you see or hear in the actual moment?";
-  else if (!hasI) question = "Where are you in this sentence?";
-  else if (t.length > MAX_TWEET_LEN) question = "If you had to keep one line only, which is it?";
-
   return {
     honesty,
     hook_type,
     single_emotion: !/\band also\b|\bplus\b|\bhowever\b/i.test(t),
     abstract_flags,
     bone,
-    question,
-    cuts: [],
-    note: abstract_flags.length
-      ? "Some abstract words — swap one for something you could photograph."
-      : hasI
-        ? "Keep going — stay concrete."
-        : "Try putting yourself in the frame.",
   };
 }
 
-function parseCoachJson(raw, fallback) {
-  const base = { ...fallback };
+function parseCoachJson(raw, lint) {
   let s = String(raw || "").trim();
+  if (!s) return null;
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  // Prefer outermost JSON object
   const start = s.indexOf("{");
   const end = s.lastIndexOf("}");
   if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  // Common model glitches
+  s = s.replace(/,\s*([}\]])/g, "$1");
+
+  let o;
   try {
-    const o = JSON.parse(s);
-    const honesty = ["vague", "personal", "raw"].includes(o.honesty) ? o.honesty : base.honesty;
-    const hook_type = [
-      "thesis",
-      "feeling",
-      "observation",
-      "punchline",
-      "question",
-      "other",
-    ].includes(o.hook_type)
-      ? o.hook_type
-      : base.hook_type;
-    let bone = Number(o.bone);
-    if (!Number.isFinite(bone)) bone = base.bone;
-    bone = Math.max(0, Math.min(10, Math.round(bone)));
-    const abstract_flags = Array.isArray(o.abstract_flags)
-      ? o.abstract_flags.map((x) => String(x)).filter(Boolean).slice(0, 8)
-      : base.abstract_flags;
-    const cuts = Array.isArray(o.cuts)
-      ? o.cuts
-          .map((x) => String(x || "").trim())
-          .filter((x) => x && x.length <= MAX_TWEET_LEN)
-          .slice(0, 2)
-      : [];
-    const question = String(o.question || base.question || "")
-      .trim()
-      .slice(0, 160);
-    const note = String(o.note || base.note || "")
-      .trim()
-      .slice(0, 240);
-    return {
-      honesty,
-      hook_type,
-      single_emotion: o.single_emotion !== false,
-      abstract_flags,
-      bone,
-      question: question || base.question,
-      cuts,
-      note: note || base.note,
-    };
+    o = JSON.parse(s);
   } catch (_) {
-    return base;
+    // Sometimes models nest the object as a string field
+    try {
+      const again = JSON.parse(String(raw || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim());
+      if (again && typeof again === "object" && (again.question || again.cuts)) o = again;
+      else return null;
+    } catch (__) {
+      return null;
+    }
   }
+  if (!o || typeof o !== "object") return null;
+
+  const honesty = ["vague", "personal", "raw"].includes(o.honesty)
+    ? o.honesty
+    : lint && lint.honesty
+      ? lint.honesty
+      : "personal";
+  const hook_type = [
+    "thesis",
+    "feeling",
+    "observation",
+    "punchline",
+    "question",
+    "other",
+  ].includes(o.hook_type)
+    ? o.hook_type
+    : lint && lint.hook_type
+      ? lint.hook_type
+      : "other";
+  let bone = Number(o.bone);
+  if (!Number.isFinite(bone)) bone = lint && lint.bone != null ? lint.bone : 5;
+  bone = Math.max(0, Math.min(10, Math.round(bone)));
+
+  const abstract_flags = Array.isArray(o.abstract_flags)
+    ? o.abstract_flags.map((x) => String(x)).filter(Boolean).slice(0, 8)
+    : lint && lint.abstract_flags
+      ? lint.abstract_flags
+      : [];
+
+  // Allow slightly over-280 cuts (trim later in UI if needed); prefer keeping suggestions.
+  let cuts = [];
+  if (Array.isArray(o.cuts)) {
+    cuts = o.cuts.map((x) => String(x || "").trim()).filter(Boolean);
+  } else if (typeof o.cuts === "string" && o.cuts.trim()) {
+    cuts = [o.cuts.trim()];
+  } else if (o.suggestion) {
+    cuts = [String(o.suggestion).trim()].filter(Boolean);
+  } else if (Array.isArray(o.suggestions)) {
+    cuts = o.suggestions.map((x) => String(x || "").trim()).filter(Boolean);
+  }
+  cuts = cuts
+    .map((c) => (c.length > MAX_TWEET_LEN ? c.slice(0, MAX_TWEET_LEN).trim() : c))
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const question = String(o.question || o.q || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+  const note = String(o.note || "")
+    .trim()
+    .slice(0, 280);
+
+  if (!question) return null;
+
+  return {
+    honesty,
+    hook_type,
+    single_emotion: o.single_emotion !== false,
+    abstract_flags,
+    bone,
+    question,
+    cuts,
+    note,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1187,13 +1202,34 @@ function extractAiText(result) {
   if (typeof result === "string") return result;
   if (typeof result.response === "string") return result.response;
   if (typeof result.text === "string") return result.text;
+  if (typeof result.output_text === "string") return result.output_text;
   if (result.result != null) {
     if (typeof result.result === "string") return result.result;
     if (typeof result.result.response === "string") return result.result.response;
+    if (typeof result.result.text === "string") return result.result.text;
   }
   // Some runtimes return message content arrays
-  if (result.message && typeof result.message.content === "string") {
-    return result.message.content;
+  if (result.message) {
+    if (typeof result.message.content === "string") return result.message.content;
+    if (Array.isArray(result.message.content)) {
+      return result.message.content
+        .map((p) => (typeof p === "string" ? p : p && p.text != null ? String(p.text) : ""))
+        .join("");
+    }
+  }
+  if (Array.isArray(result.output)) {
+    return result.output
+      .map((chunk) => {
+        if (typeof chunk === "string") return chunk;
+        if (chunk && typeof chunk.content === "string") return chunk.content;
+        if (chunk && Array.isArray(chunk.content)) {
+          return chunk.content
+            .map((p) => (typeof p === "string" ? p : p && p.text != null ? String(p.text) : ""))
+            .join("");
+        }
+        return "";
+      })
+      .join("");
   }
   try {
     return JSON.stringify(result);

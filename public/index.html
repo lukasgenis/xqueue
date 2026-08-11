@@ -204,22 +204,38 @@
     .coach-pill.personal b { color: #e0b84a; }
     .coach-bone { letter-spacing: .06em; color: var(--muted); }
     .coach-bone .lit { color: #e0b84a; }
-    .coach-q {
-      margin: 0 0 6px; color: var(--text); font-size: 14px; font-weight: 500;
+    .coach-section { margin-top: 10px; }
+    .coach-section:first-of-type { margin-top: 4px; }
+    .coach-section-label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .06em; margin: 0 0 6px;
     }
-    .coach-q::before { content: "Q · "; color: var(--muted); font-weight: 400; }
-    .coach-note { margin: 0; color: var(--muted); font-size: 12px; }
+    .coach-q {
+      margin: 0; color: var(--text); font-size: 15px; font-weight: 500; line-height: 1.4;
+    }
+    .coach-q.pending, .coach-note.pending {
+      color: var(--muted); font-weight: 400; font-style: italic;
+    }
+    .coach-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
     .coach-flags { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
     .coach-flag {
       font-size: 11px; padding: 2px 8px; border-radius: 999px;
       border: 1px solid #5c4a2a; color: #e0b84a; background: #1c1810;
     }
-    .coach-cuts { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .coach-cuts { display: flex; flex-direction: column; gap: 6px; }
     .coach-cut {
-      text-align: left; width: 100%; font-size: 13px; padding: 8px 10px;
-      border-radius: 8px; white-space: pre-wrap; line-height: 1.35;
+      text-align: left; width: 100%; font-size: 13px; padding: 10px 12px;
+      border-radius: 10px; white-space: pre-wrap; line-height: 1.4;
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text);
     }
-    .coach-status { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .coach-cut:hover:not(:disabled) { border-color: var(--accent-dim); }
+    .coach-cut:disabled { opacity: 0.7; cursor: default; }
+    .coach-cut.placeholder {
+      color: var(--muted); font-style: italic; border-style: dashed;
+    }
+    .coach-status { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .coach-status.err { color: var(--danger); }
     .vault-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px; margin-top: 8px;
@@ -645,7 +661,7 @@
           <button type="button" class="coach-mode-btn" id="coachModeBtn"
                   aria-haspopup="listbox" aria-expanded="false" aria-controls="coachMenu"
                   title="Writing coach — honesty &amp; specificity, not virality">
-            <span id="coachModeValue">pause</span>
+            <span id="coachModeValue">on</span>
             <span class="coach-chevron" aria-hidden="true">▾</span>
           </button>
           <div class="coach-menu" id="coachMenu" role="listbox" aria-label="Coach mode" hidden>
@@ -654,13 +670,9 @@
               <span class="coach-opt-name">off</span>
               <span class="coach-opt-desc">Silent — just the box</span>
             </button>
-            <button type="button" class="coach-opt" role="option" data-value="local" aria-selected="false">
-              <span class="coach-opt-name">local</span>
-              <span class="coach-opt-desc">Instant hints, no AI</span>
-            </button>
-            <button type="button" class="coach-opt" role="option" data-value="pause" aria-selected="true">
-              <span class="coach-opt-name">pause</span>
-              <span class="coach-opt-desc">Local first, then AI after you pause</span>
+            <button type="button" class="coach-opt" role="option" data-value="on" aria-selected="true">
+              <span class="coach-opt-name">on</span>
+              <span class="coach-opt-desc">AI question + suggestions after you pause</span>
             </button>
           </div>
         </div>
@@ -668,10 +680,16 @@
       <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue = everyday · Lightning = vault · Post now = ship"></textarea>
       <div class="coach-panel" id="coachPanel" hidden>
         <div class="coach-row" id="coachMeta"></div>
-        <p class="coach-q" id="coachQuestion" hidden></p>
-        <p class="coach-note" id="coachNote" hidden></p>
         <div class="coach-flags" id="coachFlags" hidden></div>
-        <div class="coach-cuts" id="coachCuts" hidden></div>
+        <div class="coach-section" id="coachQSection">
+          <p class="coach-section-label">Question</p>
+          <p class="coach-q" id="coachQuestion"></p>
+        </div>
+        <div class="coach-section" id="coachCutSection">
+          <p class="coach-section-label">Suggestions</p>
+          <div class="coach-cuts" id="coachCuts"></div>
+        </div>
+        <p class="coach-note" id="coachNote" hidden></p>
         <div class="coach-status" id="coachStatus"></div>
       </div>
       <div class="composer-bottom">
@@ -1454,14 +1472,21 @@
     }
 
     // ---- Writing coach (local instant + optional Mistral on pause) ----
-    let coachModeValue = "pause";
+    let coachModeValue = "on";
 
     function coachMode() {
       return coachModeValue || "off";
     }
 
+    function normalizeCoachMode(value) {
+      // Migrate old settings: pause/local → on (questions always need AI).
+      if (value === "pause" || value === "local" || value === "on") return "on";
+      if (value === "off") return "off";
+      return "on";
+    }
+
     function setCoachMode(value, opts = {}) {
-      if (!["off", "local", "pause"].includes(value)) value = "pause";
+      value = normalizeCoachMode(value);
       coachModeValue = value;
       localStorage.setItem(COACH_MODE_KEY, value);
       const label = document.getElementById("coachModeValue");
@@ -1503,10 +1528,13 @@
       lastCoachKey = "";
       const panel = document.getElementById("coachPanel");
       if (panel) panel.hidden = true;
-      document.getElementById("coachStatus").textContent = "";
+      const st = document.getElementById("coachStatus");
+      st.textContent = "";
+      st.classList.remove("err");
     }
 
-    function localCoach(text) {
+    // Instant lint only — never invents a question (those come from AI).
+    function localLint(text) {
       const t = String(text || "");
       const lower = t.toLowerCase();
       const abstract_flags = ABSTRACT_WORDS.filter((w) => lower.includes(w)).slice(0, 8);
@@ -1528,17 +1556,7 @@
       if (abstract_flags.length) bone -= Math.min(3, abstract_flags.length);
       if (t.length > MAX_LEN) bone -= 1;
       bone = Math.max(0, Math.min(10, bone));
-      let question = "What is the smallest true detail you left out?";
-      if (honesty === "vague") question = "What did you see or hear in the actual moment?";
-      else if (!hasI) question = "Where are you in this sentence?";
-      else if (t.length > MAX_LEN) question = "If you had to keep one line only, which is it?";
-      return {
-        honesty, hook_type, single_emotion: true, abstract_flags, bone, question, cuts: [],
-        note: abstract_flags.length
-          ? "Some abstract words — swap one for something you could photograph."
-          : hasI ? "Keep going — stay concrete." : "Try putting yourself in the frame.",
-        source: "local",
-      };
+      return { honesty, hook_type, abstract_flags, bone };
     }
 
     function boneDotsHtml(n) {
@@ -1552,36 +1570,18 @@
       return `<span class="lit">${lit}</span>${dim}`;
     }
 
-    function showCoach(coach, statusText) {
-      if (!coach) return;
-      const panel = document.getElementById("coachPanel");
-      panel.hidden = false;
+    function setCoachMeta(lint) {
       const meta = document.getElementById("coachMeta");
-      const hon = coach.honesty || "—";
+      const hon = (lint && lint.honesty) || "—";
       meta.innerHTML =
         `<span class="coach-pill ${hon}"><span>Honesty</span> <b>${hon}</b></span>` +
-        `<span class="coach-pill"><span>Hook</span> <b>${coach.hook_type || "—"}</b></span>` +
-        `<span class="coach-pill"><span>Bone</span> <b class="coach-bone">${boneDotsHtml(coach.bone)}</b></span>`;
-
-      const q = document.getElementById("coachQuestion");
-      if (coach.question) {
-        q.hidden = false;
-        q.textContent = coach.question;
-      } else {
-        q.hidden = true;
-      }
-      const note = document.getElementById("coachNote");
-      if (coach.note) {
-        note.hidden = false;
-        note.textContent = coach.note;
-      } else {
-        note.hidden = true;
-      }
+        `<span class="coach-pill"><span>Hook</span> <b>${(lint && lint.hook_type) || "—"}</b></span>` +
+        `<span class="coach-pill"><span>Bone</span> <b class="coach-bone">${boneDotsHtml(lint && lint.bone)}</b></span>`;
       const flags = document.getElementById("coachFlags");
       flags.innerHTML = "";
-      if (coach.abstract_flags && coach.abstract_flags.length) {
+      if (lint && lint.abstract_flags && lint.abstract_flags.length) {
         flags.hidden = false;
-        coach.abstract_flags.forEach((w) => {
+        lint.abstract_flags.forEach((w) => {
           const s = document.createElement("span");
           s.className = "coach-flag";
           s.textContent = w;
@@ -1590,10 +1590,78 @@
       } else {
         flags.hidden = true;
       }
+    }
+
+    function showCoachLoading(text) {
+      const panel = document.getElementById("coachPanel");
+      panel.hidden = false;
+      setCoachMeta(localLint(text));
+      const q = document.getElementById("coachQuestion");
+      q.className = "coach-q pending";
+      q.textContent = "Waiting for AI…";
+      const note = document.getElementById("coachNote");
+      note.hidden = true;
+      note.textContent = "";
+      const cuts = document.getElementById("coachCuts");
+      cuts.innerHTML = "";
+      const ph = document.createElement("div");
+      ph.className = "coach-cut placeholder";
+      ph.textContent = "Suggestions appear here…";
+      cuts.appendChild(ph);
+      const st = document.getElementById("coachStatus");
+      st.classList.remove("err");
+      st.textContent = "coach · thinking…";
+    }
+
+    function showCoachError(text, msg) {
+      const panel = document.getElementById("coachPanel");
+      panel.hidden = false;
+      setCoachMeta(localLint(text));
+      const q = document.getElementById("coachQuestion");
+      q.className = "coach-q pending";
+      q.textContent = "No AI question this round.";
+      document.getElementById("coachNote").hidden = true;
+      const cuts = document.getElementById("coachCuts");
+      cuts.innerHTML = "";
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "coach-cut";
+      retry.textContent = "Tap to retry coach";
+      retry.onclick = () => {
+        lastCoachKey = "";
+        runAiCoach(document.getElementById("text").value.trim());
+      };
+      cuts.appendChild(retry);
+      const st = document.getElementById("coachStatus");
+      st.classList.add("err");
+      st.textContent = msg || "coach failed";
+    }
+
+    function showCoach(coach, statusText) {
+      if (!coach || !coach.question) {
+        showCoachError(document.getElementById("text").value, statusText || "Empty coach response");
+        return;
+      }
+      const panel = document.getElementById("coachPanel");
+      panel.hidden = false;
+      setCoachMeta(coach);
+
+      const q = document.getElementById("coachQuestion");
+      q.className = "coach-q";
+      q.textContent = coach.question;
+
+      const note = document.getElementById("coachNote");
+      if (coach.note) {
+        note.hidden = false;
+        note.className = "coach-note";
+        note.textContent = coach.note;
+      } else {
+        note.hidden = true;
+      }
+
       const cuts = document.getElementById("coachCuts");
       cuts.innerHTML = "";
       if (coach.cuts && coach.cuts.length) {
-        cuts.hidden = false;
         coach.cuts.forEach((line) => {
           const b = document.createElement("button");
           b.type = "button";
@@ -1608,9 +1676,14 @@
           cuts.appendChild(b);
         });
       } else {
-        cuts.hidden = true;
+        const empty = document.createElement("div");
+        empty.className = "coach-cut placeholder";
+        empty.textContent = "No alternate lines this round.";
+        cuts.appendChild(empty);
       }
-      document.getElementById("coachStatus").textContent = statusText || (coach.source === "ai" ? "coach · ai" : "coach · local");
+      const st = document.getElementById("coachStatus");
+      st.classList.remove("err");
+      st.textContent = statusText || "coach · ai";
     }
 
     function scheduleCoach() {
@@ -1621,36 +1694,49 @@
         clearCoachPanel();
         return;
       }
-      // Local is instant on every pause-ish input; show immediately then maybe AI.
-      if (mode === "local" || mode === "pause") {
-        showCoach(localCoach(text), mode === "local" ? "coach · local" : "coach · local · …");
+      // AI-only coach: show loading shell, then fetch after pause.
+      if (mode === "on") {
+        // Don't flash loading on every keystroke — only once we've scheduled.
+        coachTimer = setTimeout(() => {
+          const latest = document.getElementById("text").value.trim();
+          if (!latest || coachMode() !== "on") return;
+          showCoachLoading(latest);
+          runAiCoach(latest);
+        }, 1100);
       }
-      if (mode !== "pause") return;
-      coachTimer = setTimeout(() => runAiCoach(text), 1100);
     }
 
     async function runAiCoach(text) {
       text = (text || "").trim();
-      if (!text || coachMode() !== "pause") return;
+      if (!text || coachMode() !== "on") return;
       const key = text;
       if (key === lastCoachKey) return;
       const id = ++coachReqId;
-      document.getElementById("coachStatus").textContent = "coach · thinking…";
+      showCoachLoading(text);
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 28000) : null;
       try {
         const res = await api("/api/spark/coach", {
           method: "POST",
           body: JSON.stringify({ text }),
+          signal: ctrl ? ctrl.signal : undefined,
         });
         if (id !== coachReqId) return; // stale
-        if (res.ok && res.coach) {
+        if (res.ok && res.coach && res.coach.question) {
           lastCoachKey = key;
-          showCoach(res.coach, res.coach.source === "ai" ? "coach · ai" : "coach · local");
+          showCoach(res.coach, "coach · ai");
         } else {
-          showCoach(localCoach(text), "coach · local");
+          // Don't cache failures — allow retry on same text.
+          showCoachError(text, res.error || "Coach returned nothing");
         }
-      } catch (_) {
+      } catch (e) {
         if (id !== coachReqId) return;
-        showCoach(localCoach(text), "coach · local");
+        const msg = e && e.name === "AbortError"
+          ? "Coach timed out — tap to retry"
+          : (e && e.message) || "Coach request failed";
+        showCoachError(text, msg);
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
 
@@ -1888,7 +1974,9 @@
     // Custom coach picker (modal-styled menu — no native <select>).
     (function initCoachMode() {
       const saved = localStorage.getItem(COACH_MODE_KEY);
-      setCoachMode(saved && ["off", "local", "pause"].includes(saved) ? saved : "pause", { silent: true });
+      setCoachMode(normalizeCoachMode(saved || "on"), { silent: true });
+      // If label still said "pause" from HTML default, sync.
+      document.getElementById("coachModeValue").textContent = coachMode();
       document.getElementById("coachModeBtn").addEventListener("click", (e) => {
         e.stopPropagation();
         toggleCoachMenu();
