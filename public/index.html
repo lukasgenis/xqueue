@@ -100,16 +100,61 @@
       margin-bottom: 6px;
     }
     .composer-head .ctl-label { margin: 0; }
+    /* Custom coach picker — same materials as confirm modal (panel, border, shadow). */
     .coach-mode {
-      display: flex; align-items: center; gap: 6px;
+      position: relative;
+      display: flex; align-items: center; gap: 8px;
       font-size: 12px; color: var(--muted);
     }
-    .coach-mode select {
-      font: inherit; font-size: 12px; color: var(--text);
+    .coach-mode-label { white-space: nowrap; }
+    .coach-mode-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font: inherit; font-size: 13px; font-weight: 500; color: var(--text);
       background: var(--panel-2); border: 1px solid var(--border);
-      border-radius: 999px; padding: 4px 10px; outline: none;
+      border-radius: 999px; padding: 5px 12px 5px 14px;
+      line-height: 1.2; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      transition: border-color .12s, background .12s;
     }
-    .coach-mode select:focus { border-color: var(--accent-dim); }
+    .coach-mode-btn:hover { border-color: var(--accent-dim); }
+    .coach-mode-btn[aria-expanded="true"] {
+      border-color: var(--accent-dim);
+      background: var(--panel);
+    }
+    .coach-mode-btn .coach-chevron {
+      font-size: 10px; color: var(--muted); line-height: 1;
+      transition: transform .15s ease;
+    }
+    .coach-mode-btn[aria-expanded="true"] .coach-chevron { transform: rotate(180deg); }
+    .coach-menu {
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+      min-width: 220px; width: max-content; max-width: min(280px, calc(100vw - 32px));
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+      padding: 8px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .coach-menu[hidden] { display: none !important; }
+    .coach-menu-title {
+      margin: 2px 8px 6px; font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    .coach-opt {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      width: 100%; text-align: left;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 10px; padding: 10px 12px;
+      color: var(--text); font: inherit; font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: background .12s, border-color .12s;
+    }
+    .coach-opt:hover { background: var(--panel-2); border-color: var(--border); }
+    .coach-opt[aria-selected="true"] {
+      background: var(--panel-2); border-color: var(--accent-dim);
+    }
+    .coach-opt[aria-selected="true"] .coach-opt-name { color: var(--accent); }
+    .coach-opt-name { line-height: 1.2; }
+    .coach-opt-desc {
+      font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.35;
+    }
     textarea {
       width: 100%; min-height: 96px; resize: vertical;
       background: transparent; border: 0; color: var(--text);
@@ -595,14 +640,30 @@
     <div class="composer" id="composer">
       <div class="composer-head">
         <span class="ctl-label">Write</span>
-        <label class="coach-mode" title="Writing coach — honesty &amp; specificity, not virality">
-          Coach
-          <select id="coachMode" aria-label="Coach mode">
-            <option value="off">off</option>
-            <option value="local">local</option>
-            <option value="pause" selected>pause</option>
-          </select>
-        </label>
+        <div class="coach-mode" id="coachModeWrap">
+          <span class="coach-mode-label">Coach</span>
+          <button type="button" class="coach-mode-btn" id="coachModeBtn"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="coachMenu"
+                  title="Writing coach — honesty &amp; specificity, not virality">
+            <span id="coachModeValue">pause</span>
+            <span class="coach-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="coach-menu" id="coachMenu" role="listbox" aria-label="Coach mode" hidden>
+            <div class="coach-menu-title">Writing coach</div>
+            <button type="button" class="coach-opt" role="option" data-value="off" aria-selected="false">
+              <span class="coach-opt-name">off</span>
+              <span class="coach-opt-desc">Silent — just the box</span>
+            </button>
+            <button type="button" class="coach-opt" role="option" data-value="local" aria-selected="false">
+              <span class="coach-opt-name">local</span>
+              <span class="coach-opt-desc">Instant hints, no AI</span>
+            </button>
+            <button type="button" class="coach-opt" role="option" data-value="pause" aria-selected="true">
+              <span class="coach-opt-name">pause</span>
+              <span class="coach-opt-desc">Local first, then AI after you pause</span>
+            </button>
+          </div>
+        </div>
       </div>
       <textarea id="text" placeholder="What's true right now? Messy is fine.&#10;&#10;Queue = everyday · Lightning = vault · Post now = ship"></textarea>
       <div class="coach-panel" id="coachPanel" hidden>
@@ -1393,9 +1454,49 @@
     }
 
     // ---- Writing coach (local instant + optional Mistral on pause) ----
+    let coachModeValue = "pause";
+
     function coachMode() {
-      const sel = document.getElementById("coachMode");
-      return sel ? sel.value : "off";
+      return coachModeValue || "off";
+    }
+
+    function setCoachMode(value, opts = {}) {
+      if (!["off", "local", "pause"].includes(value)) value = "pause";
+      coachModeValue = value;
+      localStorage.setItem(COACH_MODE_KEY, value);
+      const label = document.getElementById("coachModeValue");
+      if (label) label.textContent = value;
+      document.querySelectorAll("#coachMenu .coach-opt").forEach((btn) => {
+        btn.setAttribute("aria-selected", btn.dataset.value === value ? "true" : "false");
+      });
+      closeCoachMenu();
+      if (!opts.silent) {
+        lastCoachKey = "";
+        scheduleCoach();
+      }
+    }
+
+    function openCoachMenu() {
+      const menu = document.getElementById("coachMenu");
+      const btn = document.getElementById("coachModeBtn");
+      if (!menu || !btn) return;
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+    }
+
+    function closeCoachMenu() {
+      const menu = document.getElementById("coachMenu");
+      const btn = document.getElementById("coachModeBtn");
+      if (!menu || !btn) return;
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+
+    function toggleCoachMenu() {
+      const menu = document.getElementById("coachMenu");
+      if (!menu) return;
+      if (menu.hidden) openCoachMenu();
+      else closeCoachMenu();
     }
 
     function clearCoachPanel() {
@@ -1784,15 +1885,27 @@
       vaultOpen = false;
       updateVaultChrome();
     });
-    // Restore coach preference
+    // Custom coach picker (modal-styled menu — no native <select>).
     (function initCoachMode() {
-      const sel = document.getElementById("coachMode");
       const saved = localStorage.getItem(COACH_MODE_KEY);
-      if (saved && ["off", "local", "pause"].includes(saved)) sel.value = saved;
-      sel.addEventListener("change", () => {
-        localStorage.setItem(COACH_MODE_KEY, sel.value);
-        lastCoachKey = "";
-        scheduleCoach();
+      setCoachMode(saved && ["off", "local", "pause"].includes(saved) ? saved : "pause", { silent: true });
+      document.getElementById("coachModeBtn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCoachMenu();
+      });
+      document.querySelectorAll("#coachMenu .coach-opt").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setCoachMode(btn.dataset.value);
+        });
+      });
+      document.addEventListener("click", (e) => {
+        const wrap = document.getElementById("coachModeWrap");
+        if (!wrap || wrap.contains(e.target)) return;
+        closeCoachMenu();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeCoachMenu();
       });
     })();
 
