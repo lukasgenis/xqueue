@@ -116,6 +116,19 @@
       font: inherit; outline: none;
     }
     .composer-bottom { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    /* All four action buttons share the same metrics so Vault/Lightning match Post now/Queue. */
+    .composer-bottom > button {
+      padding: 6px 14px;
+      font-size: 16px;
+      line-height: 1.25;
+      min-height: 34px;
+      box-sizing: border-box;
+    }
+    .composer-bottom > button.btn-secondary {
+      /* Override global .btn-secondary (8px/14px) so it matches Queue. */
+      padding: 6px 14px;
+      font-size: 16px;
+    }
     .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .count.over { color: var(--danger); }
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -124,8 +137,7 @@
       border-color: #6b5a1e; color: #f0d060; background: #1c1a12;
     }
     button.lightning:hover:not(:disabled) { border-color: #c9a227; color: #ffe08a; }
-    button.vault-btn { font-size: 13px; padding: 6px 12px; }
-    button.vault-btn .badge-count { margin-left: 2px; }
+    button.vault-btn .badge-count { margin-left: 4px; }
     .coach-panel {
       margin-top: 10px; padding: 10px 12px;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
@@ -180,7 +192,12 @@
     .item.spark .badge.private { color: var(--muted); }
     .item.spark .badge.draft { color: var(--accent); border-color: var(--accent-dim); }
     @media (max-width: 520px) {
-      .composer-bottom button { padding: 8px 12px; font-size: 14px; }
+      .composer-bottom > button,
+      .composer-bottom > button.btn-secondary {
+        padding: 8px 12px;
+        font-size: 14px;
+        min-height: 38px;
+      }
       .item.spark { flex-direction: column; align-items: stretch; }
       .item.spark .body { width: 100%; cursor: pointer; }
       .item.spark .item-actions { display: none; }
@@ -600,8 +617,8 @@
         <span class="count" id="count">0 / 280</span>
         <span class="cost" id="costEst"></span>
         <span class="spacer"></span>
-        <button type="button" class="vault-btn btn-secondary" id="vaultToggle" title="Open sparks vault">Vault<span class="badge-count" id="vaultBadge" hidden>0</span></button>
-        <button type="button" class="lightning" id="lightning" title="Save to vault (feeling post)" disabled>Lightning</button>
+        <button type="button" class="btn-secondary vault-btn" id="vaultToggle" title="Open sparks vault">Vault<span class="badge-count" id="vaultBadge" hidden>0</span></button>
+        <button type="button" class="btn-secondary lightning" id="lightning" title="Save to vault (feeling post)" disabled>Lightning</button>
         <button type="button" class="btn-secondary" id="postNow" disabled>Post now</button>
         <button type="button" class="primary" id="add" disabled>Queue</button>
       </div>
