@@ -1046,7 +1046,7 @@
 
       // Usage + next line
       const paused = state.interval_hours === 0;
-      document.getElementById("usage").textContent = `${state.count24h}/${state.daily_cap} posted (24h)`;
+      updateUsageLine();
       const nextEl = document.getElementById("next");
       if (paused) {
         nextEl.innerHTML = state.queued.length
@@ -1722,6 +1722,8 @@
           signal: ctrl ? ctrl.signal : undefined,
         });
         if (id !== coachReqId) return; // stale
+        if (res.ai) state = { ...(state || {}), ai: res.ai };
+        if (typeof updateUsageLine === "function") updateUsageLine();
         if (res.ok && res.coach && res.coach.question) {
           lastCoachKey = key;
           showCoach(res.coach, "coach · ai");
@@ -1738,6 +1740,24 @@
       } finally {
         if (timer) clearTimeout(timer);
       }
+    }
+
+    function updateUsageLine() {
+      if (!state) return;
+      const postedLine = `${state.count24h}/${state.daily_cap} posted (24h)`;
+      const ai = state.ai;
+      let aiLine = "";
+      if (ai && ai.neurons_limit) {
+        const used = Math.round(Number(ai.neurons_used) || 0);
+        const lim = Math.round(Number(ai.neurons_limit) || 10000);
+        aiLine = ` · AI ${used}/${lim} N`;
+      }
+      const usageEl = document.getElementById("usage");
+      if (!usageEl) return;
+      usageEl.textContent = postedLine + aiLine;
+      usageEl.title = ai
+        ? `Workers AI Neurons today (UTC ${ai.day || ""}): ${ai.neurons_used}/${ai.neurons_limit} used · ${ai.neurons_remaining} left · ${ai.calls || 0} calls via xqueue. Free pool is 10k/day account-wide; this counter only tracks this app.`
+        : postedLine;
     }
 
     // ---- Vault ----

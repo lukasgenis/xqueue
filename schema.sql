@@ -75,3 +75,13 @@ CREATE TABLE IF NOT EXISTS sparks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks (status, updated_at);
+
+-- Workers AI Neuron usage tracked per UTC day (xqueue AI calls only).
+CREATE TABLE IF NOT EXISTS ai_usage (
+  day                TEXT PRIMARY KEY,
+  neurons            REAL    NOT NULL DEFAULT 0,
+  calls              INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens      INTEGER NOT NULL DEFAULT 0,
+  completion_tokens  INTEGER NOT NULL DEFAULT 0,
+  updated_at         INTEGER NOT NULL
+);

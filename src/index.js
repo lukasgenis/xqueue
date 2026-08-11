@@ -17,11 +17,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_CAP = 17; // X Free tier: 17 POST /2/tweets per 24h (per user & per app)
 const MAX_ATTEMPTS = 3; // give up on a post after this many failures
 const MAX_TWEET_LEN = 280;
-// Workers AI model for drafting posts into the Review deck.
+// Workers AI model for drafting posts into the Review deck + coach.
 const AI_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const AI_GEN_MIN = 1;
 const AI_GEN_MAX = 25;
 const AI_GEN_DEFAULT = 10;
+// Free daily Neuron allocation (Cloudflare Workers AI). Resets 00:00 UTC.
+const AI_NEURON_DAILY_LIMIT = 10000;
+// Official CF neuron rates for mistral-small-3.1-24b-instruct (per 1M tokens).
+const AI_NEURONS_PER_M_IN = 31876;
+const AI_NEURONS_PER_M_OUT = 50488;
 
 // X pay-per-use pricing (USD). A post with a link costs ~13x a plain one.
 const COST_TEXT_USD = 0.015;
@@ -490,6 +495,7 @@ async function getState(env) {
 
   const review = await getReviewState(env);
   const sparks = await getSparkState(env);
+  const ai = await getAiUsageState(env);
 
   return {
     interval_hours: settings.interval_hours,
@@ -506,7 +512,128 @@ async function getState(env) {
     spent_posts: spentPosts,
     review,
     sparks,
+    ai,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Workers AI Neuron usage (tracked from xqueue calls — CF has no binding for
+// "remaining free neurons"; we estimate from token usage + official rates).
+// ---------------------------------------------------------------------------
+
+let aiUsageSchemaReady = false;
+
+function utcDayKey(ms = Date.now()) {
+  return new Date(ms).toISOString().slice(0, 10); // YYYY-MM-DD UTC
+}
+
+async function ensureAiUsageSchema(env) {
+  if (aiUsageSchemaReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS ai_usage (" +
+      "day TEXT PRIMARY KEY, " +
+      "neurons REAL NOT NULL DEFAULT 0, " +
+      "calls INTEGER NOT NULL DEFAULT 0, " +
+      "prompt_tokens INTEGER NOT NULL DEFAULT 0, " +
+      "completion_tokens INTEGER NOT NULL DEFAULT 0, " +
+      "updated_at INTEGER NOT NULL)"
+  ).run();
+  aiUsageSchemaReady = true;
+}
+
+function tokensToNeurons(promptTokens, completionTokens) {
+  const pin = Math.max(0, Number(promptTokens) || 0);
+  const cout = Math.max(0, Number(completionTokens) || 0);
+  return (pin / 1e6) * AI_NEURONS_PER_M_IN + (cout / 1e6) * AI_NEURONS_PER_M_OUT;
+}
+
+// Rough fallback when the model response has no usage block.
+function estimateTokensFromText(...parts) {
+  const chars = parts.map((p) => String(p || "").length).reduce((a, b) => a + b, 0);
+  return Math.max(1, Math.ceil(chars / 4));
+}
+
+function extractAiUsage(raw, fallbackPromptTokens, fallbackCompletionTokens) {
+  const u =
+    (raw && raw.usage) ||
+    (raw && raw.result && raw.result.usage) ||
+    null;
+  let prompt = u && (u.prompt_tokens ?? u.input_tokens ?? u.prompt_token_count);
+  let completion = u && (u.completion_tokens ?? u.output_tokens ?? u.completion_token_count);
+  if (!Number.isFinite(Number(prompt))) prompt = fallbackPromptTokens;
+  if (!Number.isFinite(Number(completion))) completion = fallbackCompletionTokens;
+  return {
+    prompt_tokens: Math.max(0, Math.round(Number(prompt) || 0)),
+    completion_tokens: Math.max(0, Math.round(Number(completion) || 0)),
+  };
+}
+
+async function recordAiUsage(env, raw, fallbackPromptTokens, fallbackCompletionTokens) {
+  try {
+    await ensureAiUsageSchema(env);
+    const { prompt_tokens, completion_tokens } = extractAiUsage(
+      raw,
+      fallbackPromptTokens,
+      fallbackCompletionTokens
+    );
+    const neurons = tokensToNeurons(prompt_tokens, completion_tokens);
+    const day = utcDayKey();
+    const now = Date.now();
+    await env.DB.prepare(
+      "INSERT INTO ai_usage (day, neurons, calls, prompt_tokens, completion_tokens, updated_at) " +
+        "VALUES (?1, ?2, 1, ?3, ?4, ?5) " +
+        "ON CONFLICT(day) DO UPDATE SET " +
+        "neurons = neurons + excluded.neurons, " +
+        "calls = calls + 1, " +
+        "prompt_tokens = prompt_tokens + excluded.prompt_tokens, " +
+        "completion_tokens = completion_tokens + excluded.completion_tokens, " +
+        "updated_at = excluded.updated_at"
+    )
+      .bind(day, neurons, prompt_tokens, completion_tokens, now)
+      .run();
+    return { day, neurons, prompt_tokens, completion_tokens };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getAiUsageState(env) {
+  const day = utcDayKey();
+  const limit = AI_NEURON_DAILY_LIMIT;
+  try {
+    await ensureAiUsageSchema(env);
+    const row = await env.DB.prepare(
+      "SELECT neurons, calls, prompt_tokens, completion_tokens, updated_at FROM ai_usage WHERE day = ?1"
+    )
+      .bind(day)
+      .first();
+    const used = row && row.neurons != null ? Number(row.neurons) : 0;
+    const calls = row && row.calls != null ? Number(row.calls) : 0;
+    return {
+      day,
+      neurons_used: Math.round(used * 10) / 10,
+      neurons_limit: limit,
+      neurons_remaining: Math.max(0, Math.round((limit - used) * 10) / 10),
+      calls,
+      prompt_tokens: row ? Number(row.prompt_tokens) || 0 : 0,
+      completion_tokens: row ? Number(row.completion_tokens) || 0 : 0,
+      // Honest: only counts AI calls made through this xqueue worker.
+      scope: "xqueue",
+      model: AI_MODEL,
+    };
+  } catch (_) {
+    return {
+      day,
+      neurons_used: 0,
+      neurons_limit: limit,
+      neurons_remaining: limit,
+      calls: 0,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      scope: "xqueue",
+      model: AI_MODEL,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -827,6 +954,26 @@ async function coachSpark(env, body) {
       : `(${text.length}/${MAX_TWEET_LEN} chars)`,
   ].join("\n");
 
+  // guided_json forces valid structure — avoids "Couldn't parse" on drafts that end
+  // with punctuation (models otherwise often emit prose or broken JSON).
+  const coachSchema = {
+    type: "object",
+    properties: {
+      honesty: { type: "string", enum: ["vague", "personal", "raw"] },
+      hook_type: {
+        type: "string",
+        enum: ["thesis", "feeling", "observation", "punchline", "question", "other"],
+      },
+      single_emotion: { type: "boolean" },
+      abstract_flags: { type: "array", items: { type: "string" } },
+      bone: { type: "integer", minimum: 0, maximum: 10 },
+      question: { type: "string" },
+      cuts: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 2 },
+      note: { type: "string" },
+    },
+    required: ["honesty", "hook_type", "bone", "question", "cuts", "note"],
+  };
+
   let raw;
   try {
     raw = await env.AI.run(AI_MODEL, {
@@ -836,14 +983,57 @@ async function coachSpark(env, body) {
       ],
       max_tokens: 900,
       temperature: 0.45,
+      guided_json: coachSchema,
     });
   } catch (err) {
+    // Retry once without guided_json if the runtime rejects the schema param.
     const msg = String(err && err.message ? err.message : err);
-    if (/neuron|quota|limit|429/i.test(msg)) {
-      return json({ ok: false, error: "AI quota hit (Neurons). Try again later.", lint }, 429);
+    if (/guided|schema|json|parameter|invalid/i.test(msg)) {
+      try {
+        raw = await env.AI.run(AI_MODEL, {
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          max_tokens: 900,
+          temperature: 0.45,
+        });
+      } catch (err2) {
+        const msg2 = String(err2 && err2.message ? err2.message : err2);
+        if (/neuron|quota|limit|429/i.test(msg2)) {
+          return json(
+            {
+              ok: false,
+              error: "AI quota hit (Neurons). Try again later.",
+              lint,
+              ai: await getAiUsageState(env),
+            },
+            429
+          );
+        }
+        return json({ ok: false, error: "AI request failed: " + msg2, lint }, 502);
+      }
+    } else if (/neuron|quota|limit|429/i.test(msg)) {
+      return json(
+        {
+          ok: false,
+          error: "AI quota hit (Neurons). Try again later.",
+          lint,
+          ai: await getAiUsageState(env),
+        },
+        429
+      );
+    } else {
+      return json({ ok: false, error: "AI request failed: " + msg, lint }, 502);
     }
-    return json({ ok: false, error: "AI request failed: " + msg, lint }, 502);
   }
+
+  await recordAiUsage(
+    env,
+    raw,
+    estimateTokensFromText(system, user),
+    300
+  );
 
   const extracted = extractAiText(raw);
   const parsed = parseCoachJson(extracted, lint);
@@ -854,6 +1044,7 @@ async function coachSpark(env, body) {
         error: "Couldn't parse coach response. Try again.",
         lint,
         debug: String(extracted || "").slice(0, 280),
+        ai: await getAiUsageState(env),
       },
       502
     );
@@ -863,6 +1054,7 @@ async function coachSpark(env, body) {
     ok: true,
     coach: { ...parsed, source: "ai" },
     model: AI_MODEL,
+    ai: await getAiUsageState(env),
   });
 }
 
@@ -926,6 +1118,11 @@ function localCoachLint(text) {
 }
 
 function parseCoachJson(raw, lint) {
+  // Already a coach object (guided_json / structured output)
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && (raw.question || raw.cuts)) {
+    return finalizeCoachObject(raw, lint);
+  }
+
   let s = String(raw || "").trim();
   if (!s) return null;
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -935,6 +1132,8 @@ function parseCoachJson(raw, lint) {
   if (start >= 0 && end > start) s = s.slice(start, end + 1);
   // Common model glitches
   s = s.replace(/,\s*([}\]])/g, "$1");
+  // Smart quotes → plain (sometimes breaks JSON.parse)
+  s = s.replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'");
 
   let o;
   try {
@@ -942,13 +1141,43 @@ function parseCoachJson(raw, lint) {
   } catch (_) {
     // Sometimes models nest the object as a string field
     try {
-      const again = JSON.parse(String(raw || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim());
+      const again = JSON.parse(
+        String(raw || "")
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/i, "")
+          .trim()
+      );
       if (again && typeof again === "object" && (again.question || again.cuts)) o = again;
       else return null;
     } catch (__) {
-      return null;
+      // Last resort: pull "question":"..." with a regex
+      const qm = s.match(/"question"\s*:\s*"((?:\\.|[^"\\])*)"/);
+      if (qm && qm[1]) {
+        o = {
+          honesty: lint && lint.honesty,
+          hook_type: lint && lint.hook_type,
+          bone: lint && lint.bone,
+          question: qm[1].replace(/\\"/g, '"').replace(/\\n/g, " "),
+          cuts: [],
+          note: "",
+          abstract_flags: (lint && lint.abstract_flags) || [],
+          single_emotion: true,
+        };
+        const cutsBlock = s.match(/"cuts"\s*:\s*\[([\s\S]*?)\]/);
+        if (cutsBlock) {
+          const parts = cutsBlock[1].match(/"((?:\\.|[^"\\])*)"/g) || [];
+          o.cuts = parts.map((p) => p.slice(1, -1).replace(/\\"/g, '"'));
+        }
+      } else {
+        return null;
+      }
     }
   }
+  if (!o || typeof o !== "object") return null;
+  return finalizeCoachObject(o, lint);
+}
+
+function finalizeCoachObject(o, lint) {
   if (!o || typeof o !== "object") return null;
 
   const honesty = ["vague", "personal", "raw"].includes(o.honesty)
@@ -1178,7 +1407,16 @@ async function generateReviewDrafts(env, body) {
     return json({ ok: false, error: "AI request failed: " + msg }, 502);
   }
 
-  const text = extractAiText(raw);
+  await recordAiUsage(
+    env,
+    raw,
+    estimateTokensFromText(system, userParts.join("\n")),
+    Math.max(200, count * 80)
+  );
+
+  let text = extractAiText(raw);
+  if (text && typeof text === "object") text = JSON.stringify(text);
+  text = String(text || "");
   if (!text.trim()) {
     return json({ ok: false, error: "AI returned empty text. Try again." }, 502);
   }
@@ -1200,19 +1438,28 @@ async function generateReviewDrafts(env, body) {
     generated: posts.length,
     model: AI_MODEL,
     topic: topic || null,
+    ai: await getAiUsageState(env),
   });
 }
 
 function extractAiText(result) {
   if (result == null) return "";
+  // Structured coach object (guided_json may return fields at top level)
+  if (typeof result === "object" && !Array.isArray(result) && (result.question || result.cuts)) {
+    return result;
+  }
   if (typeof result === "string") return result;
   if (typeof result.response === "string") return result.response;
+  if (result.response && typeof result.response === "object") return result.response;
   if (typeof result.text === "string") return result.text;
   if (typeof result.output_text === "string") return result.output_text;
   if (result.result != null) {
     if (typeof result.result === "string") return result.result;
     if (typeof result.result.response === "string") return result.result.response;
     if (typeof result.result.text === "string") return result.result.text;
+    if (typeof result.result === "object" && (result.result.question || result.result.cuts)) {
+      return result.result;
+    }
   }
   // Some runtimes return message content arrays
   if (result.message) {
