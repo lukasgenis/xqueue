@@ -183,11 +183,13 @@
     .count.over { color: var(--danger); }
     .cost { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .cost.link { color: var(--danger); }
-    .badge.lightning {
-      color: #f0d060; border-color: #6b5a1e; background: #1c1a12;
-      font-size: 11px; letter-spacing: 0; text-transform: none; padding: 0 6px;
+    /* Plain bolt after cost - not a pill. */
+    .kind-bolt {
+      color: #f0d060;
+      font-size: 12px;
+      line-height: 1;
+      margin-left: 2px;
     }
-    .kind-bolt { margin-right: 2px; }
     .coach-panel {
       margin-top: 10px; padding: 10px 12px;
       background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
@@ -1100,11 +1102,10 @@
           <div class="body">
             <div class="txt"></div>
             <div class="meta">
-              ${isBolt ? '<span class="badge lightning" title="Lightning">⚡</span>' : ""}
               ${i === 0 ? '<span class="badge next">next</span>' : `<span>#${i + 1} in line</span>`}
               <span class="char-meta${qOver ? " over" : ""}">${qLen} / ${MAX_LEN}</span>
               <span>added ${fmtWhen(item.created_at)}</span>
-              <span>· ${aud(item.cost_usd)}${textHasLink(item.text) ? " (link)" : ""}</span>
+              <span>· ${aud(item.cost_usd)}${textHasLink(item.text) ? " (link)" : ""}${isBolt ? '<span class="kind-bolt" title="Lightning">⚡</span>' : ""}</span>
             </div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
@@ -1202,14 +1203,15 @@
           ? '<span class="badge posted">posted</span>'
           : '<span class="badge failed">failed</span>';
         const bolt = item.kind === "lightning"
-          ? '<span class="badge lightning" title="Lightning">⚡</span>'
+          ? '<span class="kind-bolt" title="Lightning">⚡</span>'
           : "";
         const link = item.tweet_id ? ` &middot; <a href="https://x.com/i/web/status/${item.tweet_id}" target="_blank" rel="noopener">view</a>` : "";
         const err = item.error ? ` &middot; ${escapeHtml(item.error).slice(0, 120)}` : "";
+        const costBit = item.status === "posted" ? " · " + aud(item.cost_usd) + bolt : "";
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
-            <div class="meta">${bolt}${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${item.status === "posted" ? " · " + aud(item.cost_usd) : ""}${link}${err}</span></div>
+            <div class="meta">${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${costBit}${link}${err}</span></div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
         h.appendChild(el);
