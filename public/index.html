@@ -1539,19 +1539,21 @@
       const hasConcrete =
         /\b(\d+|am|pm|today|yesterday|tonight|morning|night|ago|years?|months?|weeks?|days?|hours?)\b/i.test(t) ||
         /\b(said|told|walked|sat|stood|looked|heard|felt|cried|laughed)\b/i.test(t);
+      // raw = sharp + specific; does not require first person
       let honesty = "vague";
-      if (hasI && (hasConcrete || t.length < 120)) honesty = "personal";
-      if (hasI && hasConcrete && !abstract_flags.length) honesty = "raw";
+      if (hasConcrete && !abstract_flags.length) honesty = hasI ? "raw" : "personal";
+      else if (hasI || (hasConcrete && t.length < 140)) honesty = "personal";
+      if (abstract_flags.length && !hasConcrete) honesty = "vague";
       let hook_type = "other";
       if (/\?\s*$/.test(t.trim())) hook_type = "question";
       else if (/^(yeah|honestly|i |my |when |after |before )/i.test(t.trim())) hook_type = "feeling";
       else if (/\b(is|are|means|because)\b/i.test(t) && t.length > 80) hook_type = "thesis";
-      else if (t.length < 100) hook_type = "observation";
-      let bone = 4;
-      if (hasI) bone += 2;
+      else if (t.length < 120) hook_type = "observation";
+      let bone = 5;
       if (hasConcrete) bone += 2;
       if (abstract_flags.length) bone -= Math.min(3, abstract_flags.length);
       if (t.length > MAX_LEN) bone -= 1;
+      if (t.length > 0 && t.length <= 120 && hasConcrete) bone += 1;
       bone = Math.max(0, Math.min(10, bone));
       return { honesty, hook_type, abstract_flags, bone };
     }
