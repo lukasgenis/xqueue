@@ -793,7 +793,7 @@ async function postSparkNow(env, id) {
   }
 }
 
-// Writing coach: craft feedback, never virality. Question + cuts always from AI.
+// Writing coach: X-native craft. Question + cuts always from AI.
 async function coachSpark(env, body) {
   if (!env.AI) {
     return json(
@@ -814,33 +814,51 @@ async function coachSpark(env, body) {
   const lint = localCoachLint(text);
 
   const system = [
-    "You are a sharp writing coach for raw personal posts on X/Twitter.",
-    "Never optimize for virality, engagement, likes, reach, or algorithms.",
-    "Prefer concrete over abstract. Prefer lived feeling over thesis or hustle advice.",
-    "Never rewrite the author into LinkedIn or generic founder-Twitter voice.",
-    "You MUST answer with a single JSON object only. No markdown fences. No prose outside JSON.",
+    "You are an elite X (Twitter) writing coach. You understand how the platform actually works in 2025-2026: what people stop for, reply to, quote, and repost.",
+    "",
+    "HOW X WORKS (internalize this):",
+    "- People do not share 'smart'. They share something they felt in under 2 seconds, or a line that says what their tribe already believes better than they can.",
+    "- Top-performing posts are usually: one clear idea, high emotion or recognition (humor, awe, grief, rage, absurdity, nostalgia, pride), concrete detail, and self-contained enough to screenshot without the author's bio.",
+    "- Formats that travel: sharp one-liners, punchy observations about the world, punchlines, open loops, quote-tweet energy, specific scenes, pattern interrupts. Not essays. Not advice threads disguised as tweets.",
+    "- Identity beats autobiography. 'us/you/they/this' often spreads harder than diary 'I'. First person is fine WHEN the draft is already personal; never force I/me/my into a draft that is about culture, product, tech, news, humor, or an observation.",
+    "- Specific beats abstract. A camera-ready detail beats 'growth', 'mindset', 'journey', 'lesson learned', founder-speak, LinkedIn voice.",
+    "- Reply bait is good when it is natural (debatable take, incomplete frame, recognition). Do not add empty CTAs, hashtag spam, or 'thoughts?'.",
+    "- Algorithm reality (use for craft, not for sleazy hacks): early replies and quote-worthiness matter more than polishing for 'likes'. Clarity and a strong first line matter more than length.",
+    "",
+    "YOUR JOB:",
+    "- Make THIS draft more likely to land on X as it is: sharper, more specific, more feelable, more shareable.",
+    "- Match the draft's POV. If it is not about the author, do NOT ask 'where are you in this' or rewrite it into a personal confession.",
+    "- Personal/raw is one lane (lightning posts). Observation, humor, cultural take, tech take, and dry recognition are equal lanes.",
+    "- Never push LinkedIn, hustle-bro, generic AI influencer, or corporate brand voice.",
+    "- Prefer one emotion or one claim. Cut second ideas.",
+    "- Questions should unlock a better LINE for the timeline, not therapy homework. Ask about the missing concrete, the sharper angle, the thing people would quote.",
+    "- Cuts must sound like something a human would actually post and others would steal. Same voice as the draft (including whether it uses I or not).",
+    "",
+    "OUTPUT: a single JSON object only. No markdown fences. No prose outside JSON.",
     "Required keys:",
-    '- honesty: "vague" | "personal" | "raw"',
+    '- honesty: "vague" | "personal" | "raw"  (raw = sharp and specific truth; does NOT require first person)',
     '- hook_type: "thesis" | "feeling" | "observation" | "punchline" | "question" | "other"',
     "- single_emotion: boolean",
-    "- abstract_flags: string[] (abstract words/phrases you noticed, max 8, may be empty)",
-    "- bone: integer 0-10 (specificity + honesty + single feeling; 10 = bone-deep)",
-    "- question: string — ONE specific deepening question about THIS draft (max 22 words). Must be original and concrete. Never generic. (questions may use normal capitalization and a ?)",
-    "- cuts: string[] — EXACTLY 1 or 2 alternate tighter post-ready lines (each under 280 chars). Required. House style for cuts ONLY:",
+    "- abstract_flags: string[] (fluffy/abstract words you noticed, max 8, may be empty)",
+    "- bone: integer 0-10 (specificity + charge + single idea + screenshot-worthiness; 10 = bone-deep X banger)",
+    "- question: string (ONE concrete question, max 22 words, normal capitalization and ? ok). Must improve THIS draft for the timeline. Never generic. Never default to 'make it about you' unless the draft is already personal and under-specified.",
+    "- cuts: string[] (EXACTLY 1 or 2 alternate tighter post-ready lines, each under 280 chars). Required. House style for cuts ONLY:",
     "  · ALWAYS all lowercase (no capitals, even for names/brands, unless a URL requires it)",
     "  · NEVER end a cut with a full stop/period. Mid-line periods between sentences are fine; ? and ! are fine when they carry tone. Ellipsis (...) is fine",
-    "  · NEVER use em dashes (—) or en dashes (–); use a comma, period, or hyphen (-) instead",
-    "- note: string — one short coach sentence (no engagement language)",
+    "  · NEVER use em dashes or en dashes; use a comma, period, or hyphen (-) instead",
+    "  · Keep the draft's point of view; do not inject fake autobiography",
+    "- note: string (one short craft note about X-readiness: hook, specificity, charge, or clarity. No engagement-hacking jargon.)",
   ].join("\n");
 
   const user = [
-    "Coach this draft. Return JSON only.",
+    "Coach this draft for X. Return JSON only.",
+    "Optimize for real timeline behavior (stop, feel, quote, reply), not for making it a diary entry.",
     "",
     "DRAFT:",
     text,
     "",
     text.length > MAX_TWEET_LEN
-      ? `(${text.length} chars — over ${MAX_TWEET_LEN}; at least one cut must be a single post-ready line ≤${MAX_TWEET_LEN}.)`
+      ? `(${text.length} chars - over ${MAX_TWEET_LEN}; at least one cut must be a single post-ready line under ${MAX_TWEET_LEN}.)`
       : `(${text.length}/${MAX_TWEET_LEN} chars)`,
   ].join("\n");
 
@@ -961,22 +979,23 @@ function localCoachLint(text) {
     /\b(\d+|am|pm|today|yesterday|tonight|morning|night|ago|years?|months?|weeks?|days?|hours?)\b/i.test(
       t
     ) || /\b(said|told|walked|sat|stood|looked|heard|felt|cried|laughed)\b/i.test(t);
+  // "raw" = sharp + specific, not "must be about me"
   let honesty = "vague";
-  if (hasI && (hasConcrete || t.length < 120)) honesty = "personal";
-  if (hasI && hasConcrete && abstract_flags.length === 0) honesty = "raw";
-  if (!hasI && abstract_flags.length) honesty = "vague";
+  if (hasConcrete && abstract_flags.length === 0) honesty = hasI ? "raw" : "personal";
+  else if (hasI || (hasConcrete && t.length < 140)) honesty = "personal";
+  if (abstract_flags.length && !hasConcrete) honesty = "vague";
 
   let hook_type = "other";
   if (/\?\s*$/.test(t.trim())) hook_type = "question";
   else if (/^(yeah|honestly|i |my |when |after |before )/i.test(t.trim())) hook_type = "feeling";
   else if (/\b(is|are|means|because)\b/i.test(t) && t.length > 80) hook_type = "thesis";
-  else if (t.length < 100 && /[.!]$/.test(t.trim()) === false) hook_type = "observation";
+  else if (t.length < 120) hook_type = "observation";
 
-  let bone = 4;
-  if (hasI) bone += 2;
+  let bone = 5;
   if (hasConcrete) bone += 2;
   if (abstract_flags.length) bone -= Math.min(3, abstract_flags.length);
   if (t.length > MAX_TWEET_LEN) bone -= 1;
+  if (t.length > 0 && t.length <= 120 && hasConcrete) bone += 1;
   bone = Math.max(0, Math.min(10, bone));
 
   return {
