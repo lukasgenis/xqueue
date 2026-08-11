@@ -9,56 +9,48 @@ Mac-mini dependency, always on.
 
 ## Features
 
-- **Composer (home)** — one top box for everything. **Queue** (or Enter on
-  desktop) for everyday posts; **Lightning** saves a feeling draft into the
-  **Vault** (messy/long OK until you ship); **Post now** ships immediately
-  (confirm). Optional **Coach** (off / local / pause) gives honesty, bone,
-  hook type, and one deepening question — not a virality score. Pause mode
-  calls Workers AI (Mistral) after you stop typing.
-- **Vault** — sparks from Lightning: edit, cool-off 1h, queue, post now, or
-  delete. Cooling blocks queue/post until the timer ends (or you clear it).
-- **Queue** — queued posts drain on your interval. Top of the list posts next.
-- **Post now** — also available per queued item (**➤**) and per vault spark.
-- **Interval** — 1/3/6/9/12/24 h toggle controlling how fast the queue drains.
-  Global to the whole queue; stored in D1, so changing it never needs a redeploy.
-- **Edit / reorder / delete** — edit a queued post inline (auto-growing box),
-  move it up/down with ▲▼, or delete it (with confirm). Queued items only.
-- **Bulk import** — paste many posts or upload a `.txt`/`.md`/`.csv`, split by
-  blank line (multi-line posts) or one-per-line. Live count, skips over-280 /
-  empty entries with a report.
-- **Review** — Tinder-style triage for big dumps. Paste the same way as bulk
-  import; swipe right (or →) to queue immediately, left (or ←) to reject. Edit
-  the front card when it’s almost right. One-step undo (survives refresh). Deck
-  is stored in D1 so you can leave and continue. Over-280 posts stay in the deck
-  with a warning and can only be rejected or edited down, not accepted.
-- **AI generate (Review)** — draft more posts with Workers AI (**Mistral Small
-  3.1 24B**) using your recent history + queue as voice samples. Drafts land in
-  the review deck for swipe triage. Free tier: 10k Neurons/day on Cloudflare.
-- **Cost tracking (AUD)** — live per-post cost estimate in the composer (flags
-  links, which are 13× pricier), per-item costs, a "cost to drain the queue"
-  total, and a running "spent so far" total. USD→AUD via a cron-cached live rate.
-- **Runway** — Queue tab shows how many days of posts remain at the current
-  interval, and the projected empties date.
-- **Queue / History tabs** — switch between pending and posted/failed, each with
-  a live count.
-- **Login + brute-force protection** — custom passphrase login page (no browser
-  popups anywhere), per-IP rate limiting, constant-time secret comparison.
-- **Mobile-friendly** — 16px inputs (no iOS zoom), tap-a-post to reveal its
-  actions, keyboard-aware edit box, responsive throughout.
+- **Composer (home)** - one top write box. **Queue** (or Enter on desktop) and
+  **Post now** (confirm) are the only ship paths from the landing box.
+- **Coach** (off | on) - when **on**, after you pause typing, Workers AI
+  (**Mistral Small 3.1**) returns honesty / hook / bone, one deepening
+  question, and 1-2 high-bone suggestions (house style: all lowercase, no
+  terminal full stop). Tuned for real X timeline craft (specificity, charge,
+  form match: question drafts stay questions). Not a virality score.
+- **Lightning tag (⚡)** - automatic when **Coach is on** and you Queue or Post
+  now from the landing composer only. Plain ⚡ after the cost on queue and
+  history items. Bulk import and Review accept never get the tag.
+- **Queue** - queued posts drain on your interval. Top of the list posts next.
+  "Next post" shows **now** when due or under one minute away.
+- **Post now** - also available per queued item (**➤**).
+- **Interval** - 1/3/6/9/12/24 h (or ∞ paused). Global; stored in D1.
+- **Edit / reorder / delete / shuffle** - queued items only.
+- **Bulk import** - paste or upload `.txt`/`.md`/`.csv`; blank-line or
+  one-per-line split. No lightning tag.
+- **Review** - Tinder-style triage for dumps; accept queues, reject discards;
+  undo; persistent deck in D1. Over-280 editable but not accept-able until cut.
+- **AI generate (Review)** - batch drafts into the review deck (voice from
+  recent posted/queued/pending). Free CF Neurons apply account-wide.
+- **Cost tracking (AUD)** - composer estimate, per-item costs, drain total,
+  spent so far. USD prices; FX via cron-cached rate.
+- **Runway** - days of queue left at current interval + empties date.
+- **Queue / History tabs** - pending vs posted/failed with live counts.
+- **Login** - passphrase UI, per-IP rate limit, constant-time compare.
+- **Mobile-friendly** - 16px inputs, tap-to-reveal actions, stacked composer
+  actions on narrow screens.
 
 ## Architecture
 
 - **Cloudflare Worker** (`src/index.js`) serves the static UI from `./public` and
   handles the `/api/*` routes. Based on the `spudnote-web` skeleton.
-- **D1 database** `xqueue` holds the queue (with per-post `cost_usd`), settings
-  (interval, last-posted, cached FX rate), and the auth rate-limit log. Schema in
-  `schema.sql`; column additions applied via `ALTER TABLE` on the live DB.
-- **Cron Trigger** (`0 * * * *`, in `wrangler.toml`) runs the scheduler hourly.
-- **OAuth 1.0a** user-context signing to `POST /2/tweets`, done in-Worker with
-  Web Crypto (HMAC-SHA1) — no library. Signing was verified against Twitter's
-  documented test vector.
-- **Auto-deploy:** connected to GitHub (`lukasgenis/xqueue`, private) via
-  Cloudflare's Git integration — every push to `main` runs `wrangler deploy`.
+- **D1 database** `xqueue` holds the queue (per-post `cost_usd`, optional
+  `kind` = `lightning`), settings, auth rate-limit log, review deck tables.
+  Schema in `schema.sql`; new columns need live `ALTER TABLE` (also done lazily
+  in the Worker for `kind`).
+- **Cron Trigger** (see `wrangler.toml`) runs the scheduler.
+- **OAuth 1.0a** user-context signing to `POST /2/tweets` in-Worker (Web Crypto).
+- **Workers AI** binding for Review generate + landing coach.
+- **Auto-deploy:** push to `main` on GitHub (`lukasgenis/xqueue`) → Cloudflare
+  runs `wrangler deploy`. Prefer push over manual deploy.
 
 ## Cost (important — X killed the free tier)
 
@@ -92,8 +84,9 @@ npx wrangler secret put X_ACCESS_TOKEN
 npx wrangler secret put X_ACCESS_SECRET
 npx wrangler secret put APP_SECRET      # any long random passphrase; the UI asks once
 
-# 4. Deploy (or just push to main — Git integration auto-deploys)
-npx wrangler deploy
+# 4. Ship: commit + push to main (Cloudflare Git auto-deploys).
+#    Only run `npx wrangler deploy` if you intentionally skip git.
+git push origin main
 ```
 
 Then open the URL, enter the passphrase on the login screen, and start queueing.
@@ -136,31 +129,32 @@ top item** (`POST /api/post-now`) both still respect the daily cap.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/state` | Queue, history, interval, counts, costs, FX rate |
-| POST | `/api/queue` | Add one post `{text}` |
-| POST | `/api/queue/bulk` | Add many `{texts:[]}` |
-| GET | `/api/review` | Deck state (also embedded in `/api/state` as `review`) |
+| GET | `/api/state` | Queue, history, interval, counts, costs, FX, review |
+| POST | `/api/queue` | Add one post `{text, kind?}` (`kind: "lightning"` optional) |
+| POST | `/api/queue/bulk` | Add many `{texts:[]}` (no lightning) |
+| POST | `/api/queue/shuffle` | Randomise queue order |
+| GET | `/api/history` | Older history page `?before=` |
+| GET | `/api/review` | Deck state (also in `/api/state` as `review`) |
 | POST | `/api/review` | Seed deck `{texts:[], mode:"replace"\|"append"}` |
 | POST | `/api/review/generate` | AI draft into deck `{count?, mode?, topic?}` |
-| POST | `/api/sparks` | Save lightning draft `{text, cool_minutes?}` |
-| PATCH | `/api/sparks/:id` | Edit spark `{text?}` / status `{status, cool_minutes?}` |
-| DELETE | `/api/sparks/:id` | Delete spark |
-| POST | `/api/sparks/:id/queue` | Move spark → queue (≤280) |
-| POST | `/api/sparks/:id/post` | Post spark to X now (≤280) |
-| POST | `/api/spark/coach` | Writing coach JSON `{text}` |
 | DELETE | `/api/review` | Empty the whole deck |
 | PATCH | `/api/review/:id` | Edit a deck item `{text}` |
 | DELETE | `/api/review/:id` | Remove one deck item |
 | POST | `/api/review/:id/accept` | Queue this item (optional `{text}` override) |
 | POST | `/api/review/:id/reject` | Discard this item |
 | POST | `/api/review/undo` | Undo last accept or reject |
+| POST | `/api/spark/coach` | Writing coach JSON `{text}` → honesty/hook/bone/question/cuts |
 | PATCH | `/api/queue/:id` | Edit a queued post `{text}` |
 | POST | `/api/queue/:id/move` | Reorder `{dir:"up"\|"down"}` |
 | POST | `/api/queue/:id/post-now` | Post that specific queued item now |
 | DELETE | `/api/queue/:id` | Remove a queued post |
-| POST | `/api/interval` | Set interval `{hours}` |
+| POST | `/api/interval` | Set interval `{hours}` (0 = paused) |
 | POST | `/api/post-now` | Force-post the oldest queued item |
-| POST | `/api/post-text` | Post arbitrary `{text}` immediately |
+| POST | `/api/post-text` | Post arbitrary `{text, kind?}` immediately |
+
+Legacy `/api/sparks*` routes may still exist in the Worker for older D1 rows; the
+UI no longer uses a vault. Lightning is only `kind` on queue/post from the
+landing composer when coach is on.
 
 ## Local dev
 
