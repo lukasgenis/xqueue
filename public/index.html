@@ -969,10 +969,13 @@
 
     function fmtCountdown(ms) {
       const diff = ms - Date.now();
-      if (diff <= 0) return "now";
+      // Same on every device. Treat sub-minute as "now" so we never show "in 0m"
+      // (floor of 1–59s was 0 minutes while still technically in the future).
+      if (diff < 60000) return "now";
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
-      return h > 0 ? `in ${h}h ${m}m` : `in ${m}m`;
+      if (h > 0) return `in ${h}h ${m}m`;
+      return `in ${m}m`;
     }
 
     // Grow a textarea to fit its content so all text is visible without scrolling.
