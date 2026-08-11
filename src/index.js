@@ -847,6 +847,11 @@ async function coachSpark(env, body) {
     "  · Each cut must score bone 8-10 if you re-scored it yourself: specific, charged, one idea, screenshotable",
     "  · If you cannot beat the draft on bone, return the draft tightened (still house style) rather than a weaker line",
     "  · Do not output soft, vague, or 'safer' versions that would fail your own bone meter - that creates an endless rewrite loop",
+    "  · FORM MATCH (non-negotiable): preserve the draft's rhetorical form",
+    "    - If the draft is a question or mostly questions, EVERY cut must stay a question (end with ?). Never convert Qs into hot-take statements.",
+    "    - If the draft is a statement, cuts stay statements (unless a question is clearly sharper and the draft already invites one).",
+    "    - If the draft mixes forms, keep the dominant form; do not flatten curiosity into a lecture.",
+    "    - Questions on X often outperform statements of the same idea because they invite replies. Do not 'fix' a good question into a claim.",
     "  · Under 280 chars each",
     "  · House style for cuts ONLY:",
     "    - ALWAYS all lowercase (no capitals, even for names/brands, unless a URL requires it)",
@@ -856,10 +861,18 @@ async function coachSpark(env, body) {
     "- note: string (one short craft note about X-readiness: hook, specificity, charge, or clarity. No engagement-hacking jargon.)",
   ].join("\n");
 
+  const draftIsQuestion =
+    /\?/.test(text) &&
+    (text.match(/\?/g) || []).length >= Math.max(1, (text.match(/[.!]/g) || []).length);
+  const formHint = draftIsQuestion
+    ? "FORM: this draft is question-led. Your cuts MUST remain questions (end with ?). Do not rewrite into statements."
+    : "FORM: match the draft (statement vs question). Do not change form without a clear win.";
+
   const user = [
     "Coach this draft for X. Return JSON only.",
     "Optimize for real timeline behavior (stop, feel, quote, reply), not for making it a diary entry.",
-    "Your cuts will replace the draft when the author taps them, then get coached again. They must already be high-bone finished posts, not drafts that will score poorly next pass.",
+    "Your cuts will replace the draft when the author taps them. They must already be high-bone finished posts, not drafts that will score poorly next pass.",
+    formHint,
     "",
     "DRAFT:",
     text,
@@ -945,6 +958,23 @@ async function coachSpark(env, body) {
       },
       502
     );
+  }
+
+  // Enforce form match: question-led drafts must keep ? on every cut (models love
+  // turning curiosity into hot-take statements).
+  if (draftIsQuestion && parsed.cuts && parsed.cuts.length) {
+    parsed.cuts = parsed.cuts
+      .map((c) => {
+        let line = String(c || "").trim();
+        if (!line) return "";
+        if (!line.includes("?")) {
+          line = line.replace(/[.!]+$/g, "").trim();
+          if (line) line = line + "?";
+        }
+        return normalizeDraftStyle(line);
+      })
+      .filter(Boolean)
+      .slice(0, 2);
   }
 
   return json({
