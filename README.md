@@ -7,6 +7,21 @@ or paused). Self-host on Cloudflare Workers + D1 — no always-on server.
 This is not a multi-tenant SaaS. **You deploy your own instance** with your own
 X credentials and passphrase.
 
+## Try the demo
+
+Open playground — **no passphrase**, not connected to any real X account:
+
+**https://xqueue-demo.lukas-genis.workers.dev**
+
+Posts are faked, the queue is a **separate** D1 with sample dummy text, and no
+X secrets are configured. Same repo as production; only a second deploy target
+(`wrangler.demo.toml`).
+
+```sh
+# re-deploy the public demo (maintainers)
+npx wrangler deploy --config wrangler.demo.toml
+```
+
 ## Why it’s cheap to run
 
 | Piece | Cost for personal use |
@@ -34,9 +49,10 @@ features past the daily free pool.
   landing composer
 - **Queue** — drains on your interval; reorder, edit, delete, shuffle
 - **Review** — Tinder-style triage for bulk dumps; optional AI draft into the deck
-- **Cost estimates** — plain-text unit price, shown in your display currency
+- **Cost estimates** — plain-text unit price (**$0.015**), shown in your display
+  currency (up to 3 decimals so it is not rounded to $0.02)
 - **Currency toggle** — USD (default), EUR, GBP, AUD, CAD, NZD, JPY
-- **Passphrase login** — single shared secret + per-IP rate limit
+- **Passphrase login** — single shared secret + per-IP rate limit (production)
 
 ## Cost estimates (read this)
 
@@ -71,7 +87,7 @@ features past the daily free pool.
 ### 1. Clone and install
 
 ```sh
-git clone https://github.com/YOUR_USER/xqueue.git
+git clone https://github.com/lukasgenis/xqueue.git
 cd xqueue
 npm install
 npx wrangler login
@@ -83,7 +99,8 @@ npx wrangler login
 npx wrangler d1 create xqueue
 ```
 
-Copy the printed `database_id` into `wrangler.toml`:
+Copy the printed `database_id` into `wrangler.toml` (replace the placeholder /
+existing id with **your** database):
 
 ```toml
 [[d1_databases]]
@@ -146,36 +163,6 @@ history and easy reverts.
 Workers AI is already bound in `wrangler.toml` — no extra secret. Free Neurons
 are account-wide; coach/generate fail gracefully if AI is unavailable.
 
-## Try the demo
-
-Open playground (no passphrase, not connected to any real X account):
-
-**https://xqueue-demo.lukas-genis.workers.dev**
-
-Posts are faked, the queue is a **separate** D1 with sample dummy text, and no
-X secrets are configured. Production is a different Worker + database.
-
-Same repo, same codebase — only a second deploy target (`wrangler.demo.toml`).
-No need for a separate branch or repository (that would just drift).
-
-Maintainer re-deploy:
-
-```sh
-npx wrangler deploy --config wrangler.demo.toml
-```
-
-Local demo without X:
-
-```sh
-# .dev.vars (never commit)
-DEMO=1
-
-npx wrangler dev
-```
-
-To spin up your own demo: copy `wrangler.demo.toml`, new Worker name + D1,
-`DEMO = "1"`. No `APP_SECRET` needed for an open demo.
-
 ## How the scheduler decides to post
 
 Every cron tick posts the oldest queued item **only if**:
@@ -205,10 +192,12 @@ guard you control.
 
 ## Security
 
-- `APP_SECRET` gates every `/api/*` call — use high entropy
+- Production: `APP_SECRET` gates every `/api/*` call — use high entropy (30+
+  random characters is fine)
 - Per-IP rate limit: 10 failed attempts / 15 min → 429
 - Constant-time secret compare
-- Optional: Cloudflare **Access** on the hostname for email OTP on top
+- Demo mode (`DEMO=1`) skips the passphrase so the playground stays open
+- Optional: Cloudflare **Access** on the production hostname for email OTP on top
 - Never commit secrets, `.dev.vars`, or API tokens
 
 ## Local dev
@@ -229,7 +218,18 @@ curl -X POST localhost:8787/api/post-now -H "x-app-secret: <APP_SECRET>"
 
 Cron does not fire automatically in local dev the same way as production.
 
-## API (all require `x-app-secret` unless `APP_SECRET` is unset)
+Local open demo without X:
+
+```sh
+# .dev.vars
+DEMO=1
+npx wrangler dev
+```
+
+## API
+
+All routes require the `x-app-secret` header when `APP_SECRET` is set.
+Open demos (`DEMO=1`, no secret) leave the API open.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -257,9 +257,9 @@ Cron does not fire automatically in local dev the same way as production.
 | `X_API_SECRET` | prod | Consumer secret |
 | `X_ACCESS_TOKEN` | prod | User access token |
 | `X_ACCESS_SECRET` | prod | User access secret |
-| `APP_SECRET` | always | UI passphrase |
+| `APP_SECRET` | prod | UI passphrase (skip on open demos) |
 
-Optional var: `DEMO=1` — mock posting, no X secrets needed.
+Optional var: `DEMO=1` — mock posting, no X secrets, no passphrase.
 
 ## License
 
