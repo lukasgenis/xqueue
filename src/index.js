@@ -20,8 +20,10 @@ const MAX_TWEET_LEN = 280;
 // Workers AI model for drafting posts into the Review deck + coach.
 const AI_MODEL = "@cf/mistralai/mistral-small-3.1-24b-instruct";
 const AI_GEN_MIN = 1;
-const AI_GEN_MAX = 25;
+const AI_GEN_MAX = 25; // production Review generate batch size cap
 const AI_GEN_DEFAULT = 10;
+const AI_GEN_MAX_DEMO = 5; // demo: smaller batches (also saves Neurons)
+const AI_GEN_DEFAULT_DEMO = 3;
 
 
 // X pay-per-use pricing (USD). Estimates always use the plain-text rate.
@@ -583,6 +585,12 @@ async function getState(env, request = null) {
     spent_posts: spentPosts,
     review,
     demo: isDemo(env),
+    // Review AI generate batch bounds (UI number selector + server clamp).
+    ai_gen: {
+      min: AI_GEN_MIN,
+      max: isDemo(env) ? AI_GEN_MAX_DEMO : AI_GEN_MAX,
+      default: isDemo(env) ? AI_GEN_DEFAULT_DEMO : AI_GEN_DEFAULT,
+    },
   };
   // Per-IP demo AI usage only when we have the request (omit otherwise so
   // clients can keep their last known remaining counts).
@@ -1353,11 +1361,11 @@ async function generateReviewDrafts(env, body, request) {
     }
   }
 
+  const genMax = isDemo(env) ? AI_GEN_MAX_DEMO : AI_GEN_MAX;
+  const genDefault = isDemo(env) ? AI_GEN_DEFAULT_DEMO : AI_GEN_DEFAULT;
   let count = Number(body.count);
-  if (!Number.isFinite(count)) count = AI_GEN_DEFAULT;
-  count = Math.max(AI_GEN_MIN, Math.min(AI_GEN_MAX, Math.round(count)));
-  // Demo: don't let one click generate 25 posts.
-  if (isDemo(env)) count = Math.min(count, 5);
+  if (!Number.isFinite(count)) count = genDefault;
+  count = Math.max(AI_GEN_MIN, Math.min(genMax, Math.round(count)));
   const mode = body.mode === "replace" ? "replace" : "append";
   const topic = String(body.topic || "").trim().slice(0, 400);
 

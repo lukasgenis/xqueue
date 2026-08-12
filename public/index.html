@@ -773,11 +773,11 @@
       <div class="review-ai" id="reviewAi">
         <span class="review-ai-label">Generate with AI</span>
         <div class="review-ai-row">
-          <input type="number" id="reviewAiCount" min="1" max="25" value="10" step="1" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" title="How many posts" aria-label="How many posts" />
+          <input type="number" id="reviewAiCount" min="1" max="25" value="10" step="1" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" title="How many posts (max 25)" aria-label="How many posts" />
           <input type="text" id="reviewAiTopic" placeholder="Optional theme (e.g. market takes, dry humor)" maxlength="400" autocomplete="off" enterkeyhint="done" />
           <button type="button" class="primary" id="reviewAiGen">✦ Generate</button>
         </div>
-        <p class="review-ai-hint">Uses Mistral Small on Workers AI + your history/queue as voice samples. Drafts land in the review deck (append). Free tier: ~10k Neurons/day.</p>
+        <p class="review-ai-hint" id="reviewAiHint">Uses Mistral Small on Workers AI + your history/queue as voice samples. Drafts land in the review deck (append). Free tier: ~10k Neurons/day. Max <span id="reviewAiMaxLabel">25</span> posts per run.</p>
       </div>
       <div id="reviewDeckSection" hidden>
         <div class="review-deck-head">
@@ -1197,6 +1197,7 @@
       const lockBtn = document.getElementById("lockBtn");
       if (lockBtn) lockBtn.hidden = !!state.demo;
       updateDemoAiNote();
+      syncAiGenCountInput();
 
       syncCurrencyPicker();
 
@@ -2757,6 +2758,27 @@
     });
     document.getElementById("reviewSeed").addEventListener("click", () => seedReviewDeck());
     document.getElementById("reviewAiGen").addEventListener("click", () => generateAiReview());
+    // Clamp generate count as the user types / leaves the field.
+    (function initAiGenCountInput() {
+      const el = document.getElementById("reviewAiCount");
+      if (!el) return;
+      const clamp = () => {
+        const bounds = aiGenBounds();
+        let n = Number(el.value);
+        if (!Number.isFinite(n)) n = bounds.default;
+        n = Math.max(bounds.min, Math.min(bounds.max, Math.round(n)));
+        el.value = String(n);
+      };
+      el.addEventListener("change", clamp);
+      el.addEventListener("blur", clamp);
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          clamp();
+          el.blur();
+        }
+      });
+    })();
     document.getElementById("reviewContinue").addEventListener("click", () => {
       if (!reviewItems().length) {
         toast("Deck is empty - paste posts above");
@@ -2765,12 +2787,41 @@
       openSwipeMode();
     });
 
+    function aiGenBounds() {
+      const g = state && state.ai_gen;
+      if (g && Number.isFinite(g.max)) {
+        return {
+          min: Number.isFinite(g.min) ? g.min : 1,
+          max: g.max,
+          default: Number.isFinite(g.default) ? g.default : Math.min(10, g.max),
+        };
+      }
+      // Fallback before first state load.
+      return { min: 1, max: 25, default: 10 };
+    }
+
+    function syncAiGenCountInput() {
+      const el = document.getElementById("reviewAiCount");
+      if (!el) return;
+      const bounds = aiGenBounds();
+      el.min = String(bounds.min);
+      el.max = String(bounds.max);
+      el.title = "How many posts (max " + bounds.max + ")";
+      const maxLabel = document.getElementById("reviewAiMaxLabel");
+      if (maxLabel) maxLabel.textContent = String(bounds.max);
+      let n = Number(el.value);
+      if (!Number.isFinite(n)) n = bounds.default;
+      n = Math.max(bounds.min, Math.min(bounds.max, Math.round(n)));
+      el.value = String(n);
+    }
+
     async function generateAiReview() {
       const btn = document.getElementById("reviewAiGen");
       if (btn.disabled) return;
+      const bounds = aiGenBounds();
       let count = Number(document.getElementById("reviewAiCount").value);
-      if (!Number.isFinite(count)) count = 10;
-      count = Math.max(1, Math.min(25, Math.round(count)));
+      if (!Number.isFinite(count)) count = bounds.default;
+      count = Math.max(bounds.min, Math.min(bounds.max, Math.round(count)));
       document.getElementById("reviewAiCount").value = String(count);
       const topic = document.getElementById("reviewAiTopic").value.trim();
       const existing = reviewItems().length;
