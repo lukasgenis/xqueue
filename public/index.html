@@ -662,7 +662,9 @@
             <!-- options filled by JS from state.currencies -->
           </div>
         </div>
-        <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock">🔒 Lock</button>
+        <!-- Hidden until boot knows this is a passphrase-protected (non-demo) session.
+             Avoids a flash of Lock on hard refresh of open demos. -->
+        <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock" hidden>🔒 Lock</button>
       </div>
     </header>
 
@@ -888,6 +890,9 @@
       const input = document.getElementById("loginInput");
       input.value = "";
       input.focus();
+      // Logged out: never show Lock while the login gate is up.
+      const lockBtn = document.getElementById("lockBtn");
+      if (lockBtn) lockBtn.hidden = true;
     }
 
     function hideLogin() {
@@ -1143,7 +1148,7 @@
 
       const demoBanner = document.getElementById("demoBanner");
       if (demoBanner) demoBanner.hidden = !state.demo;
-      // Demo is open (no passphrase) - hide lock; production keeps it.
+      // Lock only for passphrase-protected instances (not demo / open access).
       const lockBtn = document.getElementById("lockBtn");
       if (lockBtn) lockBtn.hidden = !!state.demo;
 
