@@ -912,7 +912,7 @@
           // Only persist a real passphrase; open demo leaves storage empty.
           if (secret) localStorage.setItem("xqueue_secret", secret);
           else localStorage.removeItem("xqueue_secret");
-          state = await res.json();
+          adoptState(await res.json());
           hideLogin();
           render();
           return true;
@@ -1438,7 +1438,7 @@
       if (currencyBusy) return; // don't overwrite an in-flight currency change
       if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
       try {
-        state = await api("/api/state");
+        adoptState(await api("/api/state"));
         render();
       } catch (e) { /* handled in api() */ }
     }
@@ -1906,12 +1906,26 @@
       const a = state.demo_ai;
       const left = a.coach_remaining != null ? a.coach_remaining : "?";
       const lim = a.coach_limit != null ? a.coach_limit : 5;
-      el.textContent = " · Coach AI: " + left + "/" + lim + " left today (per network)";
+      // remaining of limit, e.g. "4 of 5 coach runs left today"
+      el.textContent =
+        " · Coach AI: " + left + " of " + lim + " runs left today (per network)";
     }
 
     function mergeDemoAi(res) {
       if (!res || !res.demo_ai) return;
       state = { ...(state || {}), demo_ai: res.demo_ai };
+      updateDemoAiNote();
+    }
+
+    // When adopting full /api/state (or other payloads), keep demo_ai if omitted.
+    function adoptState(res) {
+      if (!res) return;
+      const prevAi = state && state.demo_ai;
+      state = res;
+      if (state.demo) {
+        if (res.demo_ai) state.demo_ai = res.demo_ai;
+        else if (prevAi) state.demo_ai = prevAi;
+      }
       updateDemoAiNote();
     }
 
