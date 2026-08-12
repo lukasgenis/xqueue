@@ -2796,7 +2796,8 @@
           default: Number.isFinite(g.default) ? g.default : Math.min(10, g.max),
         };
       }
-      // Fallback before first state load.
+      // Demo must never fall back to the production max of 25.
+      if (state && state.demo) return { min: 1, max: 5, default: 3 };
       return { min: 1, max: 25, default: 10 };
     }
 
@@ -2819,10 +2820,29 @@
       const btn = document.getElementById("reviewAiGen");
       if (btn.disabled) return;
       const bounds = aiGenBounds();
-      let count = Number(document.getElementById("reviewAiCount").value);
-      if (!Number.isFinite(count)) count = bounds.default;
-      count = Math.max(bounds.min, Math.min(bounds.max, Math.round(count)));
-      document.getElementById("reviewAiCount").value = String(count);
+      const countEl = document.getElementById("reviewAiCount");
+      const raw = Number(countEl.value);
+      // Over max / under min: fix the field, toast, and stop so we don't jump
+      // into the "deck already has N posts" dialog (N is deck size, not count).
+      if (!Number.isFinite(raw) || raw < bounds.min || raw > bounds.max) {
+        const fixed = Number.isFinite(raw)
+          ? Math.max(bounds.min, Math.min(bounds.max, Math.round(raw)))
+          : bounds.default;
+        countEl.value = String(fixed);
+        if (Number.isFinite(raw) && raw > bounds.max) {
+          toast(
+            "Max " + bounds.max + " posts per run" +
+              (state && state.demo ? " on demo" : "")
+          );
+        } else if (Number.isFinite(raw) && raw < bounds.min) {
+          toast("Min " + bounds.min + " post per run");
+        } else {
+          toast("Enter " + bounds.min + "–" + bounds.max + " posts");
+        }
+        return;
+      }
+      const count = Math.round(raw);
+      countEl.value = String(count);
       const topic = document.getElementById("reviewAiTopic").value.trim();
       const existing = reviewItems().length;
       let mode = "append";
