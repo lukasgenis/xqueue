@@ -1057,8 +1057,16 @@
       const cur = displayCurrency();
       const meta = CURRENCY_META[cur] || CURRENCY_META.USD;
       const n = Number(usd || 0) * fxRate();
-      const digits = dp != null ? dp : (cur === "JPY" ? 0 : 2);
-      return meta.symbol + n.toFixed(digits);
+      if (cur === "JPY" && dp == null) {
+        return meta.symbol + Math.round(n).toFixed(0);
+      }
+      // X unit price is $0.015 — never round that up to $0.02 via 2dp.
+      // Default: up to 3 decimal places; drop the third when it's a trailing zero
+      // ($1.500 → $1.50, $0.015 → $0.015).
+      if (dp != null) return meta.symbol + n.toFixed(dp);
+      const t3 = n.toFixed(3);
+      if (t3.endsWith("0")) return meta.symbol + n.toFixed(2);
+      return meta.symbol + t3;
     }
     // Back-compat alias used in a few call sites if any remain.
     function aud(usd, dp) { return money(usd, dp); }
