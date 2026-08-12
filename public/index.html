@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" translate="no">
+<html lang="en" translate="no" class="booting">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -110,8 +110,36 @@
     .wrap > :not(header) {
       transition: opacity .18s ease;
     }
-    .header-right { display: flex; align-items: center; gap: 12px; }
-    header .usage { font-size: 12px; color: var(--muted); text-align: right; }
+    .header-right {
+      display: flex; align-items: center; gap: 12px;
+      /* Match chip height so the row doesn't jump while booting. */
+      min-height: 30px;
+    }
+    /* Reserve width so currency never slides when usage appears after hard refresh. */
+    header .usage {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      display: inline-block;
+      min-width: 10.75rem;
+      box-sizing: border-box;
+    }
+    /* Hard-refresh FOUC: keep usage + Lock footprint until JS finishes boot. */
+    html.booting header .usage {
+      opacity: 0.4;
+    }
+    html.booting header .usage:empty::after {
+      content: "–/– posted (24h)";
+    }
+    html.booting #lockBtn {
+      visibility: hidden;
+      pointer-events: none;
+    }
+    /* Demo never shows Lock — drop the slot after boot (not during, so currency stays put). */
+    html.ready.demo #lockBtn {
+      display: none !important;
+    }
 
     .composer {
       background: var(--panel);
@@ -798,11 +826,10 @@
             <!-- options filled by JS from state.currencies -->
           </div>
         </div>
-        <!-- Hidden until boot knows this is a passphrase-protected (non-demo) session.
-             Avoids a flash of Lock on hard refresh of open demos.
-             Same pill style as currency (picker-btn). -->
+        <!-- Visible footprint during boot (visibility:hidden via html.booting).
+             Demo hides for real after ready; prod shows Lock. Same pill as currency. -->
         <button type="button" class="picker-btn lockbtn" id="lockBtn"
-                title="Lock (sign out)" aria-label="Lock" hidden>Lock</button>
+                title="Lock (sign out)" aria-label="Lock">Lock</button>
       </div>
     </header>
 
@@ -1037,11 +1064,35 @@
       input.focus();
       // Logged out: never show Lock while the login gate is up.
       const lockBtn = document.getElementById("lockBtn");
-      if (lockBtn) lockBtn.hidden = true;
+      if (lockBtn) {
+        lockBtn.hidden = true;
+        lockBtn.style.visibility = "";
+      }
+      // End boot skeleton so login chrome is normal.
+      document.documentElement.classList.remove("booting");
+      document.documentElement.classList.add("ready");
+      document.documentElement.classList.remove("demo");
     }
 
     function hideLogin() {
       document.getElementById("login").hidden = true;
+    }
+
+    // After hard refresh: swap FOUC placeholders for real header chrome.
+    function finishHeaderBoot() {
+      const root = document.documentElement;
+      root.classList.remove("booting");
+      root.classList.add("ready");
+      if (state && state.demo) root.classList.add("demo");
+      else root.classList.remove("demo");
+      const lockBtn = document.getElementById("lockBtn");
+      if (!lockBtn) return;
+      if (state && state.demo) {
+        lockBtn.hidden = true;
+      } else if (state) {
+        lockBtn.hidden = false;
+        lockBtn.style.visibility = "";
+      }
     }
 
     // Validate a passphrase by hitting /api/state. On success, unlock + store.
@@ -1059,6 +1110,7 @@
           adoptState(await res.json());
           hideLogin();
           render();
+          finishHeaderBoot();
           return true;
         }
         const data = await res.json().catch(() => ({}));
@@ -1339,9 +1391,17 @@
       if (demoBanner) demoBanner.hidden = !state.demo;
       // Lock only for passphrase-protected instances (not demo / open access).
       const lockBtn = document.getElementById("lockBtn");
-      if (lockBtn) lockBtn.hidden = !!state.demo;
+      if (lockBtn) {
+        if (state.demo) {
+          lockBtn.hidden = true;
+        } else {
+          lockBtn.hidden = false;
+          lockBtn.style.visibility = "";
+        }
+      }
       updateDemoAiNote();
       syncAiGenCountInput();
+      finishHeaderBoot();
 
       syncCurrencyPicker();
 
