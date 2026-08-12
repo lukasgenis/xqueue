@@ -2089,30 +2089,52 @@ async function recordDemoAiCall(env, request, kind) {
 
 // One-time sample queue for public demos so the UI isn't empty.
 async function ensureDemoSeed(env) {
-  const row = await env.DB.prepare(
+  await ensureReviewSchema(env);
+  const now = Date.now();
+
+  // Queue: only seed a brand-new empty DB (not after someone drained it).
+  const queued = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM queue WHERE status = 'queued'"
   ).first();
-  if (row && row.n > 0) return;
-  const posted = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM queue"
-  ).first();
-  // Only seed a brand-new empty DB (not after the user drained the queue).
-  if (posted && posted.n > 0) return;
+  const anyQueue = await env.DB.prepare("SELECT COUNT(*) AS n FROM queue").first();
+  if ((!queued || queued.n === 0) && (!anyQueue || anyQueue.n === 0)) {
+    const queueSamples = [
+      "shipping something small every day beats waiting for the perfect launch",
+      "the queue is the product - write once, drip on a schedule",
+      "plain text posts stay cheap - save the links for replies",
+      "coach on: honesty first, virality never the goal",
+      "one idea per post. if it needs a thread, it needs another draft",
+    ];
+    await env.DB.batch(
+      queueSamples.map((text, i) =>
+        env.DB.prepare(
+          "INSERT INTO queue (text, status, created_at, kind) VALUES (?1, 'queued', ?2, NULL)"
+        ).bind(text, now + i)
+      )
+    );
+  }
 
-  const samples = [
-    "shipping something small every day beats waiting for the perfect launch",
-    "the queue is the product - write once, drip on a schedule",
-    "plain text posts stay cheap - save the links for replies",
-    "coach on: honesty first, virality never the goal",
-    "one idea per post. if it needs a thread, it needs another draft",
-  ];
-  const now = Date.now();
-  const stmts = samples.map((text, i) =>
-    env.DB.prepare(
-      "INSERT INTO queue (text, status, created_at, kind) VALUES (?1, 'queued', ?2, NULL)"
-    ).bind(text, now + i)
-  );
-  await env.DB.batch(stmts);
+  // Review deck: seed sample cards when empty so visitors can try swipe triage.
+  const review = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM review_items"
+  ).first();
+  if (!review || review.n === 0) {
+    const reviewSamples = [
+      "most productivity advice is just anxiety with a checklist",
+      "the best feature is the one you did not ship",
+      "if the draft needs a thread it probably needs a second idea cut",
+      "post the specific number. vague honesty is still vague",
+      "your timeline does not owe you a personality arc",
+      "delete the second sentence. that was the whole post",
+    ];
+    await env.DB.batch(
+      reviewSamples.map((text, i) =>
+        env.DB.prepare(
+          "INSERT INTO review_items (text, position, created_at) VALUES (?1, ?2, ?3)"
+        ).bind(text, i, now + i)
+      )
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
