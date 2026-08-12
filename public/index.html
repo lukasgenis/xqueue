@@ -161,15 +161,29 @@
     .picker-opt-desc {
       font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.35;
     }
-    /* Currency picker + Lock chip in the header; same pill style. */
+    /* Currency picker + Lock chip: identical pill footprint. */
     .header-right .picker { gap: 6px; }
     .header-right .picker-btn,
     .header-right .lockbtn {
-      padding: 5px 12px;
+      box-sizing: border-box;
+      height: 30px;
+      min-height: 30px;
+      max-height: 30px;
+      padding: 0 12px;
       font-size: 12px;
       font-weight: 500;
-      line-height: 1.2;
+      line-height: 1;
       white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .header-right .picker-btn .picker-chevron {
+      font-size: 9px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
     }
     .header-right .picker-menu { min-width: 180px; }
     .demo-banner {
