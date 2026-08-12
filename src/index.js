@@ -1397,17 +1397,19 @@ async function generateReviewDrafts(env, body, request) {
     "You write original X/Twitter posts for a single private account.",
     "Match the author's voice, tone, humor, length, and topics from the samples.",
     "Rules:",
-    `- Exactly ${count} posts.`,
-    `- Each post under ${MAX_TWEET_LEN} characters (hard limit).`,
+    `- Exactly ${count} separate posts. Never merge two ideas into one post.`,
+    `- Each post is ONE idea only. If you have two jokes or two observations, they are TWO posts.`,
+    `- Each post under ${MAX_TWEET_LEN} characters (hard limit). Prefer one short line per post.`,
+    "- NEVER repeat the same sentence twice inside one post.",
     "- ALWAYS all lowercase. Never use capital letters (not even at the start of a sentence or for names/brands unless a URL requires it).",
     "- NEVER use em dashes (—) or en dashes (–). Use a comma, period, or a normal hyphen (-) instead.",
     "- No trailing full stop/period at the end of a post. End clean — mid-post periods between sentences are fine; ? and ! are fine when they carry tone.",
-    "- One idea per post. No numbering in the post body.",
-    "- No hashtag spam. No 'thread 1/n'. No emojis unless samples use them often.",
+    "- No numbering in the post body. No hashtag spam. No 'thread 1/n'. No emojis unless samples use them often.",
     "- Do not copy samples verbatim. Do not invent fake URLs.",
     "- Avoid links unless samples clearly use them (links cost more to post).",
-    "- Output ONLY the posts, separated by a blank line. No intro, no bullets, no quotes around posts.",
-    "- Do not use --- or **** or other divider lines between posts — blank lines only.",
+    "- Output format: return JSON only, shape {\"posts\":[\"post one\",\"post two\",...]} with exactly " +
+      count +
+      " strings. No markdown fences, no commentary.",
   ].join("\n");
 
   const userParts = [
@@ -1424,8 +1426,21 @@ async function generateReviewDrafts(env, body, request) {
       ? `Theme / direction for this batch: ${topic}`
       : "Theme: continue in the same vein as the samples — fresh angles, same personality.",
     "",
-    `Write exactly ${count} new posts now.`,
+    `Write exactly ${count} new posts now as JSON: {"posts":["..."]} with ${count} separate one-idea strings.`,
   ];
+
+  const genSchema = {
+    type: "object",
+    properties: {
+      posts: {
+        type: "array",
+        items: { type: "string" },
+        minItems: count,
+        maxItems: count,
+      },
+    },
+    required: ["posts"],
+  };
 
   let raw;
   try {
@@ -1436,21 +1451,52 @@ async function generateReviewDrafts(env, body, request) {
       ],
       max_tokens: Math.min(4096, 80 + count * 140),
       temperature: 0.85,
+      guided_json: genSchema,
     });
   } catch (err) {
+    // Retry once without guided_json if the runtime rejects the schema param.
     const msg = String(err && err.message ? err.message : err);
-    // Common free-tier / binding failures
-    if (/neuron|quota|limit|429/i.test(msg)) {
+    if (/guided|schema|json|parameter|invalid/i.test(msg)) {
+      try {
+        raw = await env.AI.run(AI_MODEL, {
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: userParts.join("\n") },
+          ],
+          max_tokens: Math.min(4096, 80 + count * 140),
+          temperature: 0.85,
+        });
+      } catch (err2) {
+        const msg2 = String(err2 && err2.message ? err2.message : err2);
+        if (/neuron|quota|limit|429/i.test(msg2)) {
+          return json(
+            { ok: false, error: "AI quota hit (Neurons). Try again tomorrow or upgrade Workers Paid." },
+            429
+          );
+        }
+        return json({ ok: false, error: "AI request failed: " + msg2 }, 502);
+      }
+    } else if (/neuron|quota|limit|429/i.test(msg)) {
       return json(
         { ok: false, error: "AI quota hit (Neurons). Try again tomorrow or upgrade Workers Paid." },
         429
       );
+    } else {
+      return json({ ok: false, error: "AI request failed: " + msg }, 502);
     }
-    return json({ ok: false, error: "AI request failed: " + msg }, 502);
   }
 
   let text = extractAiText(raw);
-  if (text && typeof text === "object") text = JSON.stringify(text);
+  // guided_json may return { posts: [...] } as an object
+  if (text && typeof text === "object") {
+    if (Array.isArray(text.posts)) {
+      text = JSON.stringify({ posts: text.posts });
+    } else if (Array.isArray(text)) {
+      text = JSON.stringify({ posts: text });
+    } else {
+      text = JSON.stringify(text);
+    }
+  }
   text = String(text || "");
   if (!text.trim()) {
     return json({ ok: false, error: "AI returned empty text. Try again." }, 502);
@@ -1530,7 +1576,7 @@ function extractAiText(result) {
   }
 }
 
-// Pull discrete posts out of model output (JSON array, blank-line blocks, or numbered list).
+// Pull discrete posts out of model output (JSON {posts}, array, blank-line blocks, or lines).
 function parseGeneratedPosts(text, want) {
   text = String(text || "").trim();
   // Strip common markdown fences
@@ -1538,18 +1584,51 @@ function parseGeneratedPosts(text, want) {
 
   let candidates = [];
 
-  // JSON array of strings
-  if (text.startsWith("[")) {
+  // JSON object { "posts": ["...", ...] } (preferred)
+  if (text.startsWith("{")) {
     try {
-      const arr = JSON.parse(text);
-      if (Array.isArray(arr)) {
-        candidates = arr.map((x) => (typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)));
+      const obj = JSON.parse(text);
+      if (obj && Array.isArray(obj.posts)) {
+        candidates = obj.posts.map((x) =>
+          typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)
+        );
+      } else if (obj && Array.isArray(obj.items)) {
+        candidates = obj.items.map((x) =>
+          typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)
+        );
       }
     } catch (_) { /* fall through */ }
   }
 
+  // JSON array of strings
+  if (!candidates.length && text.startsWith("[")) {
+    try {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr)) {
+        candidates = arr.map((x) =>
+          typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)
+        );
+      }
+    } catch (_) { /* fall through */ }
+  }
+
+  // Loose recovery: "posts":[ ... ] buried in prose
   if (!candidates.length) {
-    // Blank-line separated blocks (preferred prompt format)
+    const m = text.match(/"posts"\s*:\s*(\[[\s\S]*\])/);
+    if (m) {
+      try {
+        const arr = JSON.parse(m[1]);
+        if (Array.isArray(arr)) {
+          candidates = arr.map((x) =>
+            typeof x === "string" ? x : x && x.text != null ? String(x.text) : String(x)
+          );
+        }
+      } catch (_) { /* fall through */ }
+    }
+  }
+
+  if (!candidates.length) {
+    // Blank-line separated blocks
     const blocks = text.split(/\r?\n\s*\r?\n/).map((b) => b.trim()).filter(Boolean);
     if (blocks.length >= 2) {
       candidates = blocks.map((b) =>
@@ -1572,6 +1651,13 @@ function parseGeneratedPosts(text, want) {
     }
   }
 
+  // Expand blobs where the model jammed two posts into one (multi-line or near-dupe).
+  const expanded = [];
+  for (const c of candidates) {
+    for (const part of explodeMergedPost(c)) expanded.push(part);
+  }
+  candidates = expanded;
+
   const out = [];
   const seen = new Set();
   for (let t of candidates) {
@@ -1583,19 +1669,103 @@ function parseGeneratedPosts(text, want) {
     if (/^[-–—*_=~]{2,}$/.test(t)) continue;
     // Unwrap model wrapper quotes only when both ends match (keeps real edge quotes).
     t = unwrapOuterQuotes(t);
+    // Drop repeated sentences inside one post (common model glitch).
+    t = dedupeNearDuplicateSentences(t);
     // House style: always lowercase; no em/en dashes (model may ignore prompt rules).
     t = normalizeDraftStyle(t);
     if (!t) continue;
     // Re-check after normalize (em dashes may collapse into ---)
     if (/^[-–—*_=~]{2,}$/.test(t)) continue;
     if (t.length > MAX_TWEET_LEN) t = t.slice(0, MAX_TWEET_LEN).trim();
-    const key = t.toLowerCase();
+    const key = t.toLowerCase().replace(/\s+/g, " ");
     if (seen.has(key)) continue;
+    // Near-duplicate of an earlier post (typo variants)
+    let dupe = false;
+    for (const prev of seen) {
+      if (nearDuplicateText(prev, key)) {
+        dupe = true;
+        break;
+      }
+    }
+    if (dupe) continue;
     seen.add(key);
     out.push(t);
     if (out.length >= want) break;
   }
   return out;
+}
+
+// If the model put two posts in one string (newline-separated standalone lines), split them.
+function explodeMergedPost(text) {
+  const t = String(text || "").trim();
+  if (!t) return [];
+  const lines = t
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*[-*•]\s+/, "").replace(/^\s*\d+[.)]\s+/, "").trim())
+    .filter(Boolean);
+  if (lines.length >= 2) {
+    // Each line looks like its own post (not a soft wrap of one thought).
+    const standalone = lines.every(
+      (l) => l.length >= 24 && l.length <= MAX_TWEET_LEN && !/^(and|or|but|so|because|which)\b/i.test(l)
+    );
+    if (standalone) return lines;
+  }
+  return [t];
+}
+
+// Remove consecutive / near-duplicate sentences the model pasted twice in one post.
+function dedupeNearDuplicateSentences(text) {
+  let s = String(text || "").trim();
+  if (!s) return s;
+  // Split on sentence end while keeping simple structure
+  const parts = s.split(/(?<=[.!?])\s+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    // Also handle "idea. idea" without relying on lookbehind if empty split
+    return s;
+  }
+  const kept = [];
+  for (const p of parts) {
+    const norm = p.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    let isDupe = false;
+    for (const k of kept) {
+      const kn = k.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      if (nearDuplicateText(kn, norm)) {
+        isDupe = true;
+        break;
+      }
+    }
+    if (!isDupe) kept.push(p);
+  }
+  return kept.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function nearDuplicateText(a, b) {
+  a = String(a || "").toLowerCase().replace(/\s+/g, " ").trim();
+  b = String(b || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // One contains the other and lengths are close
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  if (shorter.length >= 20 && longer.includes(shorter) && longer.length - shorter.length < shorter.length * 0.4) {
+    return true;
+  }
+  // Token Jaccard for typo-ish repeats ("instrcutor" vs "instructor")
+  const tok = (s) =>
+    new Set(
+      s
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2)
+    );
+  const A = tok(a);
+  const B = tok(b);
+  if (!A.size || !B.size) return false;
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  const union = A.size + B.size - inter;
+  const j = inter / union;
+  return j >= 0.72 && Math.min(a.length, b.length) >= 24;
 }
 
 // Models often wrap each post in quotes ("…", '…', “…”). Only strip when BOTH
