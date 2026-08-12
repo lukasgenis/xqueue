@@ -506,15 +506,22 @@
       font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
     }
     .review-deck-actions {
-      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch;
     }
-    /* Same box for Empty deck + Continue reviewing (primary weight can look taller). */
-    .review-deck-actions button {
+    /* Identical footprint for Empty deck + Continue reviewing.
+       Primary's font-weight:600 otherwise makes that button look taller. */
+    .review-deck-actions button,
+    .review-deck-actions button.btn-secondary,
+    .review-deck-actions button.primary {
       box-sizing: border-box;
-      padding: 8px 14px;
-      font-size: 13px;
-      line-height: 1.25;
+      height: 36px;
       min-height: 36px;
+      max-height: 36px;
+      padding: 0 14px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+      border-width: 1px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
