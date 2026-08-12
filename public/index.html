@@ -370,7 +370,36 @@
 
     .controls-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     @media (max-width: 520px) {
-      #reviewToggle { margin-top: 12px; }
+      /* Centre cadence + bulk/review + next-post line on narrow phones. */
+      .controls {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        margin-left: 0;
+        margin-right: 0;
+      }
+      .cadence {
+        width: 100%;
+        align-items: center;
+        text-align: center;
+      }
+      .intervals {
+        justify-content: center;
+      }
+      .controls-actions {
+        width: 100%;
+        justify-content: center;
+      }
+      #importToggle,
+      #reviewToggle {
+        margin-top: 0;
+      }
+      .next-line {
+        text-align: center;
+        margin-left: 0;
+        margin-right: 0;
+      }
     }
     .review-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
