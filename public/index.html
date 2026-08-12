@@ -1053,6 +1053,10 @@
             var note = document.getElementById("demoAiNote");
             if (note && c.demo_ai_note) note.textContent = String(c.demo_ai_note);
           }
+          var shuffle = document.getElementById("shuffleQueue");
+          if (shuffle && c.shuffle_visible) {
+            shuffle.hidden = false;
+          }
           root.classList.remove("booting");
           root.classList.add("ready");
           if (c.demo) root.classList.add("demo");
@@ -1217,6 +1221,7 @@
         const tabH = document.getElementById("tabHistory");
         const badge = document.getElementById("reviewBadge");
         const note = document.getElementById("demoAiNote");
+        const shuffle = document.getElementById("shuffleQueue");
         const reviewCount =
           state.review && state.review.count != null
             ? state.review.count
@@ -1234,6 +1239,8 @@
           next_html: nextEl ? String(nextEl.innerHTML || "") : "",
           tab_summary: sumEl ? String(sumEl.textContent || "") : "",
           demo_ai_note: note ? String(note.textContent || "") : "",
+          // Show whenever queue has 2+ items (default tab is Queue after hard refresh).
+          shuffle_visible: Array.isArray(state.queued) && state.queued.length >= 2,
         };
         localStorage.setItem(CHROME_KEY, JSON.stringify(payload));
       } catch (_) { /* private mode */ }
@@ -1860,7 +1867,9 @@
         document.getElementById("tabQueue").textContent = `Queue (${state.queued.length})`;
         const ht = state.historyTotal != null ? state.historyTotal : state.history.length;
         document.getElementById("tabHistory").textContent = `History (${ht})`;
-        document.getElementById("shuffleQueue").hidden = !(activeTab === "queue" && state.queued.length >= 2);
+        // Only toggle shuffle when we have live state (keep cached visibility during boot).
+        document.getElementById("shuffleQueue").hidden =
+          !(activeTab === "queue" && state.queued.length >= 2);
 
         const summary = document.getElementById("tabSummary");
         if (activeTab === "queue") {
