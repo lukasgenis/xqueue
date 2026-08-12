@@ -941,7 +941,12 @@
         showLogin(data.error || "Session ended - sign in again.");
         throw new Error("unauthorized");
       }
-      return res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && data && data.ok == null) {
+        data.ok = false;
+        if (!data.error) data.error = "Request failed (" + res.status + ")";
+      }
+      return data;
     }
 
     let toastTimer = null;
@@ -1062,6 +1067,8 @@
         /\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|xyz|me|gg|so|to|tv|info|link|page|site|news|blog|store|shop)\b/i.test(t);
     }
 
+    let currencyBusy = false;
+
     function syncCurrencyPicker() {
       const cur = displayCurrency();
       const label = document.getElementById("currencyValue");
@@ -1084,10 +1091,6 @@
           btn.innerHTML =
             `<span class="picker-opt-name">${code}</span>` +
             `<span class="picker-opt-desc">${meta.symbol} · ${meta.name}</span>`;
-          btn.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            await setCurrency(code);
-          });
           menu.appendChild(btn);
         });
       }
@@ -1097,22 +1100,55 @@
     }
 
     async function setCurrency(code) {
+      code = String(code || "").toUpperCase();
       closeCurrencyMenu();
-      if (!code || code === displayCurrency()) return;
+      if (!code || !CURRENCY_META[code]) return;
+      if (code === displayCurrency() || currencyBusy) return;
+      currencyBusy = true;
+      // Optimistic UI so the label doesn't snap back while the request is in flight.
+      const prev = state ? { ...state } : null;
+      if (state) {
+        state = { ...state, display_currency: code };
+        // Use default FX until the server returns the live rate.
+        if (code === "USD") state.fx_rate = 1;
+        syncCurrencyPicker();
+        applyCurrencyToUi();
+      }
       try {
         const res = await api("/api/currency", {
           method: "POST",
           body: JSON.stringify({ currency: code }),
         });
-        if (res.ok) {
+        if (res && res.ok) {
           state = res;
           syncCurrencyPicker();
-          render();
+          applyCurrencyToUi();
           toast("Currency: " + code);
         } else {
-          toast(res.error || "Couldn't change currency");
+          if (prev) state = prev;
+          syncCurrencyPicker();
+          applyCurrencyToUi();
+          toast((res && res.error) || "Couldn't change currency");
         }
-      } catch (e) { /* handled in api() */ }
+      } catch (e) {
+        if (prev) state = prev;
+        syncCurrencyPicker();
+        applyCurrencyToUi();
+        // api() already shows login on 401; still surface other failures.
+        if (!e || e.message !== "unauthorized") {
+          toast("Couldn't change currency");
+        }
+      } finally {
+        currencyBusy = false;
+      }
+    }
+
+    // Re-paint costs after a currency change; keep scroll so it doesn't feel like a reload.
+    function applyCurrencyToUi() {
+      if (!state) return;
+      const scrollY = window.scrollY;
+      render();
+      window.scrollTo(0, scrollY);
     }
 
     function openCurrencyMenu() {
@@ -1385,8 +1421,10 @@
     }
 
     async function refresh() {
-      if (!secret) return; // locked - login page is showing
+      // Demo is open (empty secret) - still poll. Locked login has no state.
+      if (!state && !secret) return;
       if (editingId !== null) return; // don't clobber an in-progress edit
+      if (currencyBusy) return; // don't overwrite an in-flight currency change
       if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
       try {
         state = await api("/api/state");
@@ -1931,13 +1969,31 @@
     })();
 
     // Currency picker (same visual language as coach).
+    // Event delegation on the menu so options always work after rebuilds.
     (function initCurrencyPicker() {
       const btn = document.getElementById("currencyBtn");
-      if (!btn) return;
+      const menu = document.getElementById("currencyMenu");
+      if (!btn || !menu) return;
       btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
         closeCoachMenu();
         toggleCurrencyMenu();
+      });
+      // Capture-phase so we handle the choice before any document outside-click logic.
+      menu.addEventListener("click", (e) => {
+        const opt = e.target && e.target.closest && e.target.closest(".picker-opt");
+        if (!opt || !menu.contains(opt)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const code = opt.dataset.value;
+        if (code) setCurrency(code);
+      });
+      // Avoid focus/scroll jumps on mousedown inside the menu.
+      menu.addEventListener("mousedown", (e) => {
+        if (e.target && e.target.closest && e.target.closest(".picker-opt")) {
+          e.preventDefault();
+        }
       });
     })();
 
