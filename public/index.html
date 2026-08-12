@@ -819,47 +819,6 @@
                 title="Lock (sign out)" aria-label="Lock">Lock</button>
       </div>
     </header>
-    <!-- Stale-while-revalidate header chrome: paint last session immediately so
-         hard refresh does not move currency/usage/lock. Main app revalidates. -->
-    <script>
-      (function () {
-        try {
-          var raw = localStorage.getItem("xqueue_chrome");
-          if (!raw) return;
-          var c = JSON.parse(raw);
-          if (!c || typeof c !== "object") return;
-          var root = document.documentElement;
-          var u = document.getElementById("usage");
-          if (u && c.usage) u.textContent = String(c.usage);
-          var cur = document.getElementById("currencyValue");
-          if (cur && c.currency) cur.textContent = String(c.currency);
-          var lock = document.getElementById("lockBtn");
-          if (c.demo) {
-            root.classList.add("demo");
-            if (lock) lock.hidden = true;
-          } else if (lock) {
-            lock.hidden = false;
-            lock.style.visibility = "";
-          }
-          // Interval active state from cache (buttons already in HTML).
-          if (c.interval_hours != null) {
-            var iv = document.getElementById("intervals");
-            if (iv) {
-              var buttons = iv.querySelectorAll("button[data-hours]");
-              for (var i = 0; i < buttons.length; i++) {
-                var h = Number(buttons[i].getAttribute("data-hours"));
-                if (h === Number(c.interval_hours)) buttons[i].classList.add("active");
-                else buttons[i].classList.remove("active");
-              }
-            }
-          }
-          root.classList.remove("booting");
-          root.classList.add("ready");
-          if (c.demo) root.classList.add("demo");
-          else root.classList.remove("demo");
-        } catch (e) { /* first visit or private mode */ }
-      })();
-    </script>
 
     <div class="demo-banner" id="demoBanner" hidden>
       Demo mode - posts are not sent to X. Explore freely; data is local to this instance.
@@ -1042,6 +1001,65 @@
       <button id="shuffleQueue" title="Randomise queue" aria-label="Randomise queue" hidden>🔀</button>
     </div>
     <div class="tab-summary" id="tabSummary"></div>
+    <!-- Shell chrome SWR: must run after intervals, badge, tabs, next, summary exist. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("xqueue_chrome");
+          if (!raw) return;
+          var c = JSON.parse(raw);
+          if (!c || typeof c !== "object") return;
+          var root = document.documentElement;
+          var u = document.getElementById("usage");
+          if (u && c.usage) u.textContent = String(c.usage);
+          var cur = document.getElementById("currencyValue");
+          if (cur && c.currency) cur.textContent = String(c.currency);
+          var lock = document.getElementById("lockBtn");
+          if (c.demo) {
+            root.classList.add("demo");
+            if (lock) lock.hidden = true;
+          } else if (lock) {
+            lock.hidden = false;
+            lock.style.visibility = "";
+          }
+          if (c.interval_hours != null && c.interval_hours !== "") {
+            var iv = document.getElementById("intervals");
+            if (iv) {
+              var want = Number(c.interval_hours);
+              var buttons = iv.querySelectorAll("button[data-hours]");
+              for (var i = 0; i < buttons.length; i++) {
+                var h = Number(buttons[i].getAttribute("data-hours"));
+                if (h === want) buttons[i].classList.add("active");
+                else buttons[i].classList.remove("active");
+              }
+            }
+          }
+          var badge = document.getElementById("reviewBadge");
+          if (badge && c.review_count != null && Number(c.review_count) > 0) {
+            badge.hidden = false;
+            badge.textContent = String(c.review_count);
+          }
+          var tabQ = document.getElementById("tabQueue");
+          var tabH = document.getElementById("tabHistory");
+          if (tabQ && c.tab_queue) tabQ.textContent = String(c.tab_queue);
+          if (tabH && c.tab_history) tabH.textContent = String(c.tab_history);
+          var next = document.getElementById("next");
+          if (next && c.next_html) next.innerHTML = String(c.next_html);
+          var sum = document.getElementById("tabSummary");
+          if (sum && c.tab_summary != null) sum.textContent = String(c.tab_summary);
+          var banner = document.getElementById("demoBanner");
+          if (banner && c.demo) {
+            banner.hidden = false;
+            var note = document.getElementById("demoAiNote");
+            if (note && c.demo_ai_note) note.textContent = String(c.demo_ai_note);
+          }
+          root.classList.remove("booting");
+          root.classList.add("ready");
+          if (c.demo) root.classList.add("demo");
+          else root.classList.remove("demo");
+        } catch (e) { /* first visit or private mode */ }
+      })();
+    </script>
     <div class="list" id="queue"></div>
     <div class="list" id="history" hidden></div>
   </div>
@@ -1066,10 +1084,12 @@
     function syncIntervalActive() {
       const box = document.getElementById("intervals");
       if (!box) return;
-      const hours = state && state.interval_hours != null ? state.interval_hours : null;
+      // Don't clear cached .active while state is not loaded yet.
+      if (!state || state.interval_hours == null) return;
+      const hours = state.interval_hours;
       box.querySelectorAll("button[data-hours]").forEach((btn) => {
         const h = Number(btn.getAttribute("data-hours"));
-        btn.classList.toggle("active", hours != null && h === hours);
+        btn.classList.toggle("active", h === hours);
       });
     }
 
@@ -1188,19 +1208,33 @@
     const CHROME_KEY = "xqueue_chrome";
     function saveHeaderChrome() {
       try {
+        if (!state) return; // never wipe cache while logged out / mid-boot
         const usageEl = document.getElementById("usage");
         const curEl = document.getElementById("currencyValue");
+        const nextEl = document.getElementById("next");
+        const sumEl = document.getElementById("tabSummary");
+        const tabQ = document.getElementById("tabQueue");
+        const tabH = document.getElementById("tabHistory");
+        const badge = document.getElementById("reviewBadge");
+        const note = document.getElementById("demoAiNote");
+        const reviewCount =
+          state.review && state.review.count != null
+            ? state.review.count
+            : badge && !badge.hidden
+              ? Number(badge.textContent) || 0
+              : 0;
         const payload = {
           usage: usageEl ? String(usageEl.textContent || "").trim() : "",
           currency: curEl ? String(curEl.textContent || "USD").trim() : "USD",
-          demo: !!(state && state.demo),
-          interval_hours: state && state.interval_hours != null ? state.interval_hours : null,
+          demo: !!state.demo,
+          interval_hours: state.interval_hours != null ? state.interval_hours : null,
+          review_count: reviewCount,
+          tab_queue: tabQ ? String(tabQ.textContent || "") : "",
+          tab_history: tabH ? String(tabH.textContent || "") : "",
+          next_html: nextEl ? String(nextEl.innerHTML || "") : "",
+          tab_summary: sumEl ? String(sumEl.textContent || "") : "",
+          demo_ai_note: note ? String(note.textContent || "") : "",
         };
-        if (!payload.usage && !(state && state.demo === false)) {
-          // Don't clobber a good cache with empty usage mid-login.
-          const prev = localStorage.getItem(CHROME_KEY);
-          if (prev && !state) return;
-        }
         localStorage.setItem(CHROME_KEY, JSON.stringify(payload));
       } catch (_) { /* private mode */ }
     }
@@ -1536,7 +1570,10 @@
         nextEl.innerHTML = `Queue is empty &middot; every ${state.interval_hours}h`;
       }
 
-      // Queue (oldest first = next to post at top)
+      // Next-line + summary already updated above / in applyTab — persist shell chrome.
+      saveHeaderChrome();
+
+      // Queue list must rebuild from live data (not chrome cache).
       const q = document.getElementById("queue");
       q.innerHTML = "";
       if (!state.queued.length) {
@@ -1843,6 +1880,7 @@
         } else {
           summary.textContent = `${money(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
         }
+        saveHeaderChrome();
       }
     }
 
@@ -2464,13 +2502,16 @@
       document.getElementById("reviewSeed").disabled = posts.length === 0;
     }
     function updateReviewChrome() {
-      const count = state && state.review ? state.review.count : 0;
       const badge = document.getElementById("reviewBadge");
-      if (count > 0) {
-        badge.hidden = false;
-        badge.textContent = String(count);
-      } else {
-        badge.hidden = true;
+      // Only update badge when we have live state — keep cached badge during boot.
+      if (state) {
+        const count = state.review ? state.review.count : 0;
+        if (count > 0) {
+          badge.hidden = false;
+          badge.textContent = String(count);
+        } else {
+          badge.hidden = true;
+        }
       }
       // Deck list (only when panel is open)
       if (!document.getElementById("reviewPanel").hidden) {
