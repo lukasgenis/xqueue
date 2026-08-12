@@ -84,10 +84,16 @@
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
     /* Wordmark: Space Grotesk Bold, white. */
     .logo { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+    /* Main header mark - tap to reload. */
+    .logo.logo-home {
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .logo.logo-home:hover { opacity: 0.88; }
+    .logo.logo-home:active { opacity: 0.72; }
     .header-right { display: flex; align-items: center; gap: 12px; }
     header .usage { font-size: 12px; color: var(--muted); text-align: right; }
-    .lockbtn { background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); padding: 5px 11px; font-size: 12px; line-height: 1; white-space: nowrap; }
-    .lockbtn:hover { color: var(--text); border-color: var(--accent-dim); }
 
     .composer {
       background: var(--panel);
@@ -155,9 +161,16 @@
     .picker-opt-desc {
       font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.35;
     }
-    /* Currency picker sits in the header; slightly tighter. */
+    /* Currency picker + Lock chip in the header; same pill style. */
     .header-right .picker { gap: 6px; }
-    .header-right .picker-btn { padding: 5px 10px 5px 12px; font-size: 12px; }
+    .header-right .picker-btn,
+    .header-right .lockbtn {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
     .header-right .picker-menu { min-width: 180px; }
     .demo-banner {
       margin: 0 0 14px; padding: 10px 14px;
@@ -738,7 +751,7 @@
 
   <div class="wrap">
     <header>
-      <h1 class="logo">xqueue</h1>
+      <h1 class="logo logo-home" id="homeLogo" title="Refresh" role="button" tabindex="0">xqueue</h1>
       <div class="header-right">
         <span class="usage" id="usage"></span>
         <div class="picker" id="currencyWrap">
@@ -754,8 +767,10 @@
           </div>
         </div>
         <!-- Hidden until boot knows this is a passphrase-protected (non-demo) session.
-             Avoids a flash of Lock on hard refresh of open demos. -->
-        <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock" hidden>🔒 Lock</button>
+             Avoids a flash of Lock on hard refresh of open demos.
+             Same pill style as currency (picker-btn). -->
+        <button type="button" class="picker-btn lockbtn" id="lockBtn"
+                title="Lock (sign out)" aria-label="Lock" hidden>Lock</button>
       </div>
     </header>
 
@@ -3271,7 +3286,20 @@
       }
     })();
 
-    // ---- Login / lock ----
+    // ---- Logo refresh + lock ----
+    (function initHomeLogo() {
+      const logo = document.getElementById("homeLogo");
+      if (!logo) return;
+      const refresh = () => { window.location.reload(); };
+      logo.addEventListener("click", refresh);
+      logo.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          refresh();
+        }
+      });
+    })();
+
     document.getElementById("lockBtn").addEventListener("click", () => {
       localStorage.removeItem("xqueue_secret");
       secret = "";
