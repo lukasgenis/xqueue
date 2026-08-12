@@ -505,8 +505,20 @@
     .review-deck-head .label {
       font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
     }
-    .review-deck-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .review-deck-actions button { padding: 5px 12px; font-size: 13px; }
+    .review-deck-actions {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    /* Same box for Empty deck + Continue reviewing (primary weight can look taller). */
+    .review-deck-actions button {
+      box-sizing: border-box;
+      padding: 8px 14px;
+      font-size: 13px;
+      line-height: 1.25;
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .review-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
     .review-list .item.over { border-color: #5c2a2c; }
     .item .meta .char-meta { font-variant-numeric: tabular-nums; }
