@@ -2787,7 +2787,20 @@
       openSwipeMode();
     });
 
+    function isDemoClient() {
+      return !!(state && state.demo);
+    }
+
     function aiGenBounds() {
+      // Demo always max 5 — never trust a missing/stale ai_gen max of 25.
+      if (isDemoClient()) {
+        const g = state && state.ai_gen;
+        return {
+          min: 1,
+          max: 5,
+          default: (g && Number.isFinite(g.default)) ? Math.min(g.default, 5) : 3,
+        };
+      }
       const g = state && state.ai_gen;
       if (g && Number.isFinite(g.max)) {
         return {
@@ -2796,8 +2809,6 @@
           default: Number.isFinite(g.default) ? g.default : Math.min(10, g.max),
         };
       }
-      // Demo must never fall back to the production max of 25.
-      if (state && state.demo) return { min: 1, max: 5, default: 3 };
       return { min: 1, max: 25, default: 10 };
     }
 
@@ -2810,10 +2821,16 @@
       el.title = "How many posts (max " + bounds.max + ")";
       const maxLabel = document.getElementById("reviewAiMaxLabel");
       if (maxLabel) maxLabel.textContent = String(bounds.max);
+      // Don't silently rewrite while the user is typing; only fix out-of-range
+      // on generate click (with an error dialog) or when bounds change (demo load).
       let n = Number(el.value);
-      if (!Number.isFinite(n)) n = bounds.default;
-      n = Math.max(bounds.min, Math.min(bounds.max, Math.round(n)));
-      el.value = String(n);
+      if (Number.isFinite(n) && n > bounds.max) {
+        // leave the typed value until Generate; max attr still set for steppers
+      } else if (!Number.isFinite(n)) {
+        el.value = String(bounds.default);
+      } else if (n < bounds.min) {
+        el.value = String(bounds.min);
+      }
     }
 
     async function generateAiReview() {
@@ -2822,25 +2839,38 @@
       const bounds = aiGenBounds();
       const countEl = document.getElementById("reviewAiCount");
       const raw = Number(countEl.value);
-      // Over max / under min: fix the field, toast, and stop so we don't jump
-      // into the "deck already has N posts" dialog (N is deck size, not count).
+
+      // Invalid / over max: modal error, do NOT generate, do NOT open deck dialog.
       if (!Number.isFinite(raw) || raw < bounds.min || raw > bounds.max) {
-        const fixed = Number.isFinite(raw)
-          ? Math.max(bounds.min, Math.min(bounds.max, Math.round(raw)))
-          : bounds.default;
-        countEl.value = String(fixed);
-        if (Number.isFinite(raw) && raw > bounds.max) {
-          toast(
-            "Max " + bounds.max + " posts per run" +
-              (state && state.demo ? " on demo" : "")
-          );
-        } else if (Number.isFinite(raw) && raw < bounds.min) {
-          toast("Min " + bounds.min + " post per run");
-        } else {
-          toast("Enter " + bounds.min + "–" + bounds.max + " posts");
+        const over = Number.isFinite(raw) && raw > bounds.max;
+        const under = Number.isFinite(raw) && raw < bounds.min;
+        let title = "Invalid number";
+        let body = "Enter a number from " + bounds.min + " to " + bounds.max + ".";
+        if (over) {
+          title = "Too many posts";
+          body =
+            "You can't generate more than " + bounds.max + " posts per run" +
+            (isDemoClient() ? " on the demo" : "") +
+            ".\n\nYou entered " + Math.round(raw) +
+            ". Change the number to " + bounds.max + " or less, then try again.";
+        } else if (under) {
+          title = "Too few posts";
+          body =
+            "Minimum is " + bounds.min + " post per run.\n\nYou entered " +
+            Math.round(raw) + ".";
         }
+        await confirmDialog({
+          title: title,
+          body: body,
+          confirmLabel: "OK",
+          cancelLabel: "Close",
+        });
+        // Leave their typed value so they can edit it; focus the field.
+        countEl.focus();
+        countEl.select();
         return;
       }
+
       const count = Math.round(raw);
       countEl.value = String(count);
       const topic = document.getElementById("reviewAiTopic").value.trim();
