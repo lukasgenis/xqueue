@@ -181,11 +181,27 @@ To spin up your own demo: copy `wrangler.demo.toml`, new Worker name + D1,
 Every cron tick posts the oldest queued item **only if**:
 
 1. `now − last_posted_at ≥ interval_hours` (or not paused), **and**
-2. fewer than **17** posts in the trailing 24 h (safety cap aligned with X free
-   plan rate limits)
+2. fewer than **17** posts in the trailing 24 h (see below)
 
 Failed posts retry next cron and are marked `failed` after 3 attempts so they
 don’t block the queue. **Post now** still respects the daily cap.
+
+### Why 17 posts / 24 h?
+
+The UI shows something like `3/17 posted (24h)`. That **17** is an **app-side
+safety cap** (`DAILY_CAP` in `src/index.js`), not a separate bill from xqueue.
+
+- X’s free / entry API plan historically allowed about **17 `POST /2/tweets` per
+  rolling 24 hours** (per user and per app)
+- Without a cap, a **1h** interval could try ~24 posts/day and hit X rate limits
+  or burn pay-per-use credits when calls fail/retry
+- The scheduler and every “Post now” path stop at 17 so the queue waits until
+  older posts age out of the 24h window
+- The header counter is headroom: `posted in last 24h / daily cap`
+
+If your X developer plan allows a higher write rate, raise `DAILY_CAP` in
+`src/index.js` and redeploy. The number is not read live from X — it’s a local
+guard you control.
 
 ## Security
 
