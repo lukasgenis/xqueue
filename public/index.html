@@ -1562,15 +1562,15 @@
             const empties = new Date(Date.now() + runwayDays * 86400000)
               .toLocaleDateString(undefined, { month: "short", day: "numeric" });
             summary.textContent =
-              `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${money(state.queue_estimate_usd)} to send (plain text est.)`;
+              `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${money(state.queue_estimate_usd)} to send`;
           } else if (state.queued.length) {
             // Paused: no drain cadence, so no runway - just the cost to send.
-            summary.textContent = `Paused · ≈ ${money(state.queue_estimate_usd)} to send (plain text est.)`;
+            summary.textContent = `Paused · ≈ ${money(state.queue_estimate_usd)} to send`;
           } else {
             summary.textContent = "";
           }
         } else {
-          summary.textContent = `${money(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted (plain text est.)`;
+          summary.textContent = `${money(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
         }
       }
     }
