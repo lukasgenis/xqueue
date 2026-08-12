@@ -308,11 +308,28 @@
        give it explicit spacing (flex gap isn't reliable cross-axis on older iOS). */
     @media (max-width: 520px) {
       #importToggle { margin-top: 12px; }
-      /* Import panel: split choice on its own full row, file picker next,
-         then the count + action buttons on a clean bottom row. */
-      .split-group { flex-basis: 100%; }
-      .import-bar .spacer,
-      .review-bar .spacer { flex-basis: 100%; height: 0; margin: 0; }
+      /* Import / Review seed bars: stack and centre each row. */
+      .import-bar,
+      .review-bar {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+      }
+      .split-group {
+        flex-basis: auto;
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+      }
+      .split-options { justify-content: center; }
+      .seed-file-row {
+        justify-content: center;
+      }
+      .seed-actions {
+        width: 100%;
+        justify-content: center;
+      }
       .import-bar button,
       .review-bar button { padding: 8px 16px; font-size: 14px; }
       /* Queued + review-deck posts on mobile: stack full-width, hide action bar
@@ -347,7 +364,9 @@
     .import-panel textarea:focus { border-color: var(--accent-dim); }
     /* Shared seed-bar styles for Bulk import + Review (identical type scale). */
     .import-bar,
-    .review-bar { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+    .review-bar {
+      display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap;
+    }
     .split-group { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
     .split-options { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
     .split-label { font-size: 14px; color: var(--muted); white-space: nowrap; }
@@ -356,15 +375,25 @@
       font-size: 14px; color: var(--text); display: flex; align-items: center;
       gap: 5px; cursor: pointer; white-space: nowrap;
     }
+    /* Keep "Choose file" + "N posts" on one unit (mobile + desktop). */
+    .seed-file-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
+    }
     .file-label {
       font-size: 14px; color: var(--accent); cursor: pointer;
       border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+      white-space: nowrap;
     }
     .file-label:hover { border-color: var(--accent-dim); }
     .import-bar .count,
-    .review-bar .count { font-size: 14px; }
+    .review-bar .count { font-size: 14px; white-space: nowrap; }
     .import-bar .count.over,
     .review-bar .count.over { color: var(--danger); }
+    /* Cancel + primary action - centered on their own row (desktop + mobile). */
+    .seed-actions {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      flex-wrap: wrap; width: 100%;
+    }
     .import-bar button,
     .review-bar button { padding: 6px 14px; font-size: 14px; }
 
@@ -444,14 +473,28 @@
       padding: 6px 14px; font-size: 14px; white-space: nowrap;
     }
     @media (max-width: 520px) {
-      /* Count + theme on first row; Generate full-width on the next. */
+      /* Count + theme on first row; Generate content-sized and centred below. */
+      .review-ai {
+        align-items: center;
+      }
+      .review-ai-label {
+        text-align: center;
+        width: 100%;
+      }
       .review-ai-row {
+        width: 100%;
         grid-template-columns: auto 1fr;
+        justify-items: stretch;
       }
       .review-ai-row button {
         grid-column: 1 / -1;
-        width: 100%;
-        padding: 10px 14px;
+        width: auto;
+        max-width: 100%;
+        justify-self: center;
+        padding: 10px 18px;
+      }
+      .review-ai-hint {
+        text-align: center;
       }
     }
     .review-ai-hint { font-size: 12px; color: var(--muted); line-height: 1.4; }
@@ -775,11 +818,14 @@
             <label class="split"><input type="radio" name="split" value="line"> one per line</label>
           </span>
         </div>
-        <label class="file-label">Choose file<input type="file" id="importFile" accept=".txt,.md,.csv,text/plain" hidden></label>
-        <span class="spacer"></span>
-        <span class="count" id="importCount">0 posts</span>
-        <button id="importCancel">Cancel</button>
-        <button class="primary" id="importAdd" disabled>Add all</button>
+        <div class="seed-file-row">
+          <label class="file-label">Choose file<input type="file" id="importFile" accept=".txt,.md,.csv,text/plain" hidden></label>
+          <span class="count" id="importCount">0 posts</span>
+        </div>
+        <div class="seed-actions">
+          <button id="importCancel">Cancel</button>
+          <button class="primary" id="importAdd" disabled>Add all</button>
+        </div>
       </div>
     </div>
 
@@ -793,11 +839,14 @@
             <label class="split"><input type="radio" name="reviewSplit" value="line"> one per line</label>
           </span>
         </div>
-        <label class="file-label">Choose file<input type="file" id="reviewFile" accept=".txt,.md,.csv,text/plain" hidden></label>
-        <span class="spacer"></span>
-        <span class="count" id="reviewSeedCount">0 posts</span>
-        <button id="reviewCancel">Cancel</button>
-        <button class="primary" id="reviewSeed" disabled>Add to review</button>
+        <div class="seed-file-row">
+          <label class="file-label">Choose file<input type="file" id="reviewFile" accept=".txt,.md,.csv,text/plain" hidden></label>
+          <span class="count" id="reviewSeedCount">0 posts</span>
+        </div>
+        <div class="seed-actions">
+          <button id="reviewCancel">Cancel</button>
+          <button class="primary" id="reviewSeed" disabled>Add to review</button>
+        </div>
       </div>
       <div class="review-ai" id="reviewAi">
         <span class="review-ai-label">Generate with AI</span>
