@@ -353,7 +353,12 @@
     }
     .cadence { display: flex; flex-direction: column; gap: 6px; }
     .ctl-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-    .intervals { display: flex; gap: 5px; flex-wrap: wrap; }
+    /* Static in HTML so hard refresh never collapses this row (Bulk/Review stay put). */
+    .intervals {
+      display: flex; gap: 5px; flex-wrap: wrap;
+      min-height: 36px;
+      align-items: center;
+    }
     .intervals button { padding: 7px 11px; font-size: 14px; min-width: 40px; }
     .intervals button.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
@@ -836,6 +841,18 @@
             lock.hidden = false;
             lock.style.visibility = "";
           }
+          // Interval active state from cache (buttons already in HTML).
+          if (c.interval_hours != null) {
+            var iv = document.getElementById("intervals");
+            if (iv) {
+              var buttons = iv.querySelectorAll("button[data-hours]");
+              for (var i = 0; i < buttons.length; i++) {
+                var h = Number(buttons[i].getAttribute("data-hours"));
+                if (h === Number(c.interval_hours)) buttons[i].classList.add("active");
+                else buttons[i].classList.remove("active");
+              }
+            }
+          }
           root.classList.remove("booting");
           root.classList.add("ready");
           if (c.demo) root.classList.add("demo");
@@ -904,7 +921,16 @@
     <div class="controls">
       <div class="cadence">
         <span class="ctl-label" id="cadenceLabel">Interval (whole queue)</span>
-        <div class="intervals" id="intervals"></div>
+        <!-- Buttons are static so hard refresh never empties this row. JS only toggles .active. -->
+        <div class="intervals" id="intervals" role="group" aria-label="Post interval">
+          <button type="button" data-hours="1" title="Queue drains every 1 hour">1h</button>
+          <button type="button" data-hours="3" title="Queue drains every 3 hours">3h</button>
+          <button type="button" data-hours="6" title="Queue drains every 6 hours">6h</button>
+          <button type="button" data-hours="9" title="Queue drains every 9 hours">9h</button>
+          <button type="button" data-hours="12" title="Queue drains every 12 hours">12h</button>
+          <button type="button" data-hours="24" title="Queue drains every 24 hours">24h</button>
+          <button type="button" data-hours="0" title="Pause the queue - nothing auto-posts until you pick an interval">∞</button>
+        </div>
       </div>
       <div class="controls-actions">
         <button id="importToggle" class="btn-secondary">⇪ Bulk import</button>
@@ -1036,6 +1062,56 @@
   <script>
     const INTERVALS = [1, 3, 6, 9, 12, 24, 0]; // 0 (∞) = paused: nothing auto-posts
     let secret = localStorage.getItem("xqueue_secret") || "";
+
+    function syncIntervalActive() {
+      const box = document.getElementById("intervals");
+      if (!box) return;
+      const hours = state && state.interval_hours != null ? state.interval_hours : null;
+      box.querySelectorAll("button[data-hours]").forEach((btn) => {
+        const h = Number(btn.getAttribute("data-hours"));
+        btn.classList.toggle("active", hours != null && h === hours);
+      });
+    }
+
+    function ensureIntervalControls() {
+      const box = document.getElementById("intervals");
+      if (!box) return;
+      // Build once only if static HTML missing (shouldn't happen).
+      if (!box.querySelector("button[data-hours]")) {
+        INTERVALS.forEach((h) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.setAttribute("data-hours", String(h));
+          b.textContent = h === 0 ? "∞" : h + "h";
+          b.title = h === 0
+            ? "Pause the queue - nothing auto-posts until you pick an interval"
+            : "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
+          box.appendChild(b);
+        });
+      }
+      if (box.dataset.bound !== "1") {
+        box.querySelectorAll("button[data-hours]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const h = Number(btn.getAttribute("data-hours"));
+            if (![0, 1, 3, 6, 9, 12, 24].includes(h)) return;
+            try {
+              const res = await api("/api/interval", {
+                method: "POST",
+                body: JSON.stringify({ hours: h }),
+              });
+              if (res && res.ok !== false) {
+                adoptState(res);
+                render();
+              } else {
+                toast((res && res.error) || "Couldn't set interval");
+              }
+            } catch (e) { /* handled in api() */ }
+          });
+        });
+        box.dataset.bound = "1";
+      }
+      syncIntervalActive();
+    }
     let state = null;
     let editingId = null; // id of the queued post currently being edited, or null
     let expandedId = null; // id of the queued post whose actions are revealed (mobile)
@@ -1118,6 +1194,7 @@
           usage: usageEl ? String(usageEl.textContent || "").trim() : "",
           currency: curEl ? String(curEl.textContent || "USD").trim() : "USD",
           demo: !!(state && state.demo),
+          interval_hours: state && state.interval_hours != null ? state.interval_hours : null,
         };
         if (!payload.usage && !(state && state.demo === false)) {
           // Don't clobber a good cache with empty usage mid-login.
@@ -1438,22 +1515,8 @@
 
       syncCurrencyPicker();
 
-      // Interval selector - purely the queue's drain cadence (global).
-      const box = document.getElementById("intervals");
-      box.innerHTML = "";
-      INTERVALS.forEach((h) => {
-        const b = document.createElement("button");
-        b.textContent = h === 0 ? "∞" : h + "h";
-        b.title = h === 0
-          ? "Pause the queue - nothing auto-posts until you pick an interval"
-          : "Queue drains every " + h + " hour" + (h > 1 ? "s" : "");
-        if (h === state.interval_hours) b.classList.add("active");
-        b.onclick = async () => {
-          state = await api("/api/interval", { method: "POST", body: JSON.stringify({ hours: h }) });
-          render();
-        };
-        box.appendChild(b);
-      });
+      // Interval buttons are static HTML - only sync active + bind clicks once.
+      ensureIntervalControls();
 
       updateReviewChrome();
       // Usage + next line
