@@ -33,6 +33,7 @@ const COST_LINK_USD = 0.2; // documented only; not used for estimates
 // Display currencies (X bills in USD; we convert for the UI).
 const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "JPY"];
 const DEFAULT_CURRENCY = "USD";
+const DEFAULT_INTERVAL_HOURS = 6; // new installs / missing settings row
 // Fallback rates (USD → currency) when frankfurter is unreachable.
 const DEFAULT_FX = {
   USD: 1,
@@ -1886,7 +1887,7 @@ async function getSettings(env) {
   ).first();
   return (
     s || {
-      interval_hours: 3,
+      interval_hours: DEFAULT_INTERVAL_HOURS,
       last_posted_at: null,
       fx_usd_aud: null,
       fx_updated_at: null,

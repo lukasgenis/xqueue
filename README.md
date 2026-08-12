@@ -2,7 +2,9 @@
 
 A **single-user** X/Twitter post scheduler. Write posts, queue them, and a
 Cloudflare cron drips the queue out on your interval (1 / 3 / 6 / 9 / 12 / 24 h,
-or paused). Self-host on Cloudflare Workers + D1 — no always-on server.
+or paused). Default cadence is **every 6 hours**; default cost display is
+**USD**. Both are stored in D1 and stick across refreshes after you change them.
+Self-host on Cloudflare Workers + D1 — no always-on server.
 
 This is not a multi-tenant SaaS. **You deploy your own instance** with your own
 X credentials and passphrase.

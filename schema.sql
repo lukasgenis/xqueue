@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_queue_posted ON queue (posted_at);
 -- Single-row settings table (id is pinned to 1).
 CREATE TABLE IF NOT EXISTS settings (
   id               INTEGER PRIMARY KEY CHECK (id = 1),
-  interval_hours   INTEGER NOT NULL DEFAULT 3,      -- 1 | 3 | 6 | 9 | 12 | 24 | 0=paused
+  interval_hours   INTEGER NOT NULL DEFAULT 6,      -- 1 | 3 | 6 | 9 | 12 | 24 | 0=paused
   last_posted_at   INTEGER,                         -- epoch ms of last successful post
   fx_usd_aud       REAL,                            -- legacy cached USD->AUD (still refreshed)
   fx_updated_at    INTEGER,                         -- epoch ms the rate was last fetched
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS settings (
   fx_rate          REAL                             -- cached USD -> display_currency rate
 );
 
-INSERT OR IGNORE INTO settings (id, interval_hours) VALUES (1, 3);
+INSERT OR IGNORE INTO settings (id, interval_hours, display_currency) VALUES (1, 6, 'USD');
 
 -- Failed passphrase attempts, for per-IP rate limiting. Pruned by the cron.
 CREATE TABLE IF NOT EXISTS auth_attempts (
