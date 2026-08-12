@@ -84,7 +84,7 @@
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
     /* Wordmark: Space Grotesk Bold, white. */
     .logo { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
-    /* Main header mark - tap for soft refresh (no full page flash). */
+    /* Main header mark - tap for hard refresh. */
     .logo.logo-home {
       cursor: pointer;
       user-select: none;
@@ -93,29 +93,11 @@
     }
     .logo.logo-home:hover { opacity: 0.88; }
     .logo.logo-home:active { opacity: 0.72; }
-    .logo.logo-home.is-soft-refreshing {
-      animation: logo-soft-pulse 0.85s ease;
-    }
-    @keyframes logo-soft-pulse {
-      0% { opacity: 1; }
-      40% { opacity: 0.45; }
-      100% { opacity: 1; }
-    }
-    /* Soft refresh: dim content below header; header chrome stays put. */
-    .wrap.is-soft-refreshing > :not(header) {
-      opacity: 0.45;
-      pointer-events: none;
-      transition: opacity .18s ease;
-    }
-    .wrap > :not(header) {
-      transition: opacity .18s ease;
-    }
     .header-right {
       display: flex; align-items: center; gap: 12px;
-      /* Match chip height so the row doesn't jump while booting. */
       min-height: 30px;
     }
-    /* Reserve width so currency never slides when usage appears after hard refresh. */
+    /* Fixed footprint so usage text length changes don't shove currency/lock. */
     header .usage {
       font-size: 12px;
       color: var(--muted);
@@ -125,7 +107,7 @@
       min-width: 10.75rem;
       box-sizing: border-box;
     }
-    /* Hard-refresh FOUC: keep usage + Lock footprint until JS finishes boot. */
+    /* First visit only (no chrome cache yet): dim placeholder until API returns. */
     html.booting header .usage {
       opacity: 0.4;
     }
@@ -136,7 +118,7 @@
       visibility: hidden;
       pointer-events: none;
     }
-    /* Demo never shows Lock — drop the slot after boot (not during, so currency stays put). */
+    /* After ready: demo never shows Lock. */
     html.ready.demo #lockBtn {
       display: none !important;
     }
@@ -811,7 +793,7 @@
 
   <div class="wrap">
     <header>
-      <h1 class="logo logo-home" id="homeLogo" title="Refresh queue" role="button" tabindex="0">xqueue</h1>
+      <h1 class="logo logo-home" id="homeLogo" title="Refresh" role="button" tabindex="0">xqueue</h1>
       <div class="header-right">
         <span class="usage" id="usage"></span>
         <div class="picker" id="currencyWrap">
@@ -832,6 +814,35 @@
                 title="Lock (sign out)" aria-label="Lock">Lock</button>
       </div>
     </header>
+    <!-- Stale-while-revalidate header chrome: paint last session immediately so
+         hard refresh does not move currency/usage/lock. Main app revalidates. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("xqueue_chrome");
+          if (!raw) return;
+          var c = JSON.parse(raw);
+          if (!c || typeof c !== "object") return;
+          var root = document.documentElement;
+          var u = document.getElementById("usage");
+          if (u && c.usage) u.textContent = String(c.usage);
+          var cur = document.getElementById("currencyValue");
+          if (cur && c.currency) cur.textContent = String(c.currency);
+          var lock = document.getElementById("lockBtn");
+          if (c.demo) {
+            root.classList.add("demo");
+            if (lock) lock.hidden = true;
+          } else if (lock) {
+            lock.hidden = false;
+            lock.style.visibility = "";
+          }
+          root.classList.remove("booting");
+          root.classList.add("ready");
+          if (c.demo) root.classList.add("demo");
+          else root.classList.remove("demo");
+        } catch (e) { /* first visit or private mode */ }
+      })();
+    </script>
 
     <div class="demo-banner" id="demoBanner" hidden>
       Demo mode - posts are not sent to X. Explore freely; data is local to this instance.
@@ -1086,13 +1097,35 @@
       if (state && state.demo) root.classList.add("demo");
       else root.classList.remove("demo");
       const lockBtn = document.getElementById("lockBtn");
-      if (!lockBtn) return;
-      if (state && state.demo) {
-        lockBtn.hidden = true;
-      } else if (state) {
-        lockBtn.hidden = false;
-        lockBtn.style.visibility = "";
+      if (lockBtn) {
+        if (state && state.demo) {
+          lockBtn.hidden = true;
+        } else if (state) {
+          lockBtn.hidden = false;
+          lockBtn.style.visibility = "";
+        }
       }
+      saveHeaderChrome();
+    }
+
+    // Persist header chrome for stale-while-revalidate on next hard refresh.
+    const CHROME_KEY = "xqueue_chrome";
+    function saveHeaderChrome() {
+      try {
+        const usageEl = document.getElementById("usage");
+        const curEl = document.getElementById("currencyValue");
+        const payload = {
+          usage: usageEl ? String(usageEl.textContent || "").trim() : "",
+          currency: curEl ? String(curEl.textContent || "USD").trim() : "USD",
+          demo: !!(state && state.demo),
+        };
+        if (!payload.usage && !(state && state.demo === false)) {
+          // Don't clobber a good cache with empty usage mid-login.
+          const prev = localStorage.getItem(CHROME_KEY);
+          if (prev && !state) return;
+        }
+        localStorage.setItem(CHROME_KEY, JSON.stringify(payload));
+      } catch (_) { /* private mode */ }
     }
 
     // Validate a passphrase by hitting /api/state. On success, unlock + store.
@@ -2197,6 +2230,7 @@
       usageEl.title = ai
         ? `Workers AI Neurons today (UTC ${ai.day || ""}): ${ai.neurons_used}/${ai.neurons_limit} used · ${ai.neurons_remaining} left · ${ai.calls || 0} calls via xqueue. Free pool is 10k/day account-wide; this counter only tracks this app.`
         : postedLine;
+      saveHeaderChrome();
     }
 
     document.getElementById("text").addEventListener("input", updateCount);
@@ -3378,53 +3412,16 @@
       }
     })();
 
-    // ---- Logo soft refresh + lock ----
-    // Soft refresh reloads state in place so usage / currency / lock don't jump
-    // away (hard reload flash). Login screen still does a full reload.
-    let softRefreshing = false;
-    async function softRefreshPage() {
-      if (softRefreshing) return;
-      const login = document.getElementById("login");
-      if (login && !login.hidden) {
-        window.location.reload();
-        return;
-      }
-      if (!state && !secret) {
-        window.location.reload();
-        return;
-      }
-      softRefreshing = true;
-      const logo = document.getElementById("homeLogo");
-      const wrap = document.querySelector(".wrap");
-      if (logo) logo.classList.add("is-soft-refreshing");
-      if (wrap) wrap.classList.add("is-soft-refreshing");
-      try {
-        // Fresh first page of history; keep edit/swipe guards like the poller.
-        if (editingId !== null || swipeMode || reviewEditingId !== null) {
-          toast("Finish editing first");
-          return;
-        }
-        historyExtra = [];
-        adoptState(await api("/api/state"));
-        render();
-        toast("Refreshed", { duration: 1100 });
-      } catch (e) {
-        if (!e || e.message !== "unauthorized") toast("Couldn't refresh");
-      } finally {
-        softRefreshing = false;
-        if (logo) logo.classList.remove("is-soft-refreshing");
-        if (wrap) wrap.classList.remove("is-soft-refreshing");
-      }
-    }
-
+    // ---- Logo hard refresh + lock ----
     (function initHomeLogo() {
       const logo = document.getElementById("homeLogo");
       if (!logo) return;
-      logo.addEventListener("click", () => { softRefreshPage(); });
+      const hardRefresh = () => { window.location.reload(); };
+      logo.addEventListener("click", hardRefresh);
       logo.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          softRefreshPage();
+          hardRefresh();
         }
       });
     })();
