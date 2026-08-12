@@ -84,14 +84,32 @@
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
     /* Wordmark: Space Grotesk Bold, white. */
     .logo { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
-    /* Main header mark - tap to reload. */
+    /* Main header mark - tap for soft refresh (no full page flash). */
     .logo.logo-home {
       cursor: pointer;
       user-select: none;
       -webkit-tap-highlight-color: transparent;
+      transition: opacity .15s ease;
     }
     .logo.logo-home:hover { opacity: 0.88; }
     .logo.logo-home:active { opacity: 0.72; }
+    .logo.logo-home.is-soft-refreshing {
+      animation: logo-soft-pulse 0.85s ease;
+    }
+    @keyframes logo-soft-pulse {
+      0% { opacity: 1; }
+      40% { opacity: 0.45; }
+      100% { opacity: 1; }
+    }
+    /* Soft refresh: dim content below header; header chrome stays put. */
+    .wrap.is-soft-refreshing > :not(header) {
+      opacity: 0.45;
+      pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .wrap > :not(header) {
+      transition: opacity .18s ease;
+    }
     .header-right { display: flex; align-items: center; gap: 12px; }
     header .usage { font-size: 12px; color: var(--muted); text-align: right; }
 
@@ -765,7 +783,7 @@
 
   <div class="wrap">
     <header>
-      <h1 class="logo logo-home" id="homeLogo" title="Refresh" role="button" tabindex="0">xqueue</h1>
+      <h1 class="logo logo-home" id="homeLogo" title="Refresh queue" role="button" tabindex="0">xqueue</h1>
       <div class="header-right">
         <span class="usage" id="usage"></span>
         <div class="picker" id="currencyWrap">
@@ -3300,16 +3318,53 @@
       }
     })();
 
-    // ---- Logo refresh + lock ----
+    // ---- Logo soft refresh + lock ----
+    // Soft refresh reloads state in place so usage / currency / lock don't jump
+    // away (hard reload flash). Login screen still does a full reload.
+    let softRefreshing = false;
+    async function softRefreshPage() {
+      if (softRefreshing) return;
+      const login = document.getElementById("login");
+      if (login && !login.hidden) {
+        window.location.reload();
+        return;
+      }
+      if (!state && !secret) {
+        window.location.reload();
+        return;
+      }
+      softRefreshing = true;
+      const logo = document.getElementById("homeLogo");
+      const wrap = document.querySelector(".wrap");
+      if (logo) logo.classList.add("is-soft-refreshing");
+      if (wrap) wrap.classList.add("is-soft-refreshing");
+      try {
+        // Fresh first page of history; keep edit/swipe guards like the poller.
+        if (editingId !== null || swipeMode || reviewEditingId !== null) {
+          toast("Finish editing first");
+          return;
+        }
+        historyExtra = [];
+        adoptState(await api("/api/state"));
+        render();
+        toast("Refreshed", { duration: 1100 });
+      } catch (e) {
+        if (!e || e.message !== "unauthorized") toast("Couldn't refresh");
+      } finally {
+        softRefreshing = false;
+        if (logo) logo.classList.remove("is-soft-refreshing");
+        if (wrap) wrap.classList.remove("is-soft-refreshing");
+      }
+    }
+
     (function initHomeLogo() {
       const logo = document.getElementById("homeLogo");
       if (!logo) return;
-      const refresh = () => { window.location.reload(); };
-      logo.addEventListener("click", refresh);
+      logo.addEventListener("click", () => { softRefreshPage(); });
       logo.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          refresh();
+          softRefreshPage();
         }
       });
     })();
