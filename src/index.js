@@ -24,11 +24,27 @@ const AI_GEN_MAX = 25;
 const AI_GEN_DEFAULT = 10;
 
 
-// X pay-per-use pricing (USD). A post with a link costs ~13x a plain one.
+// X pay-per-use pricing (USD). Estimates always use the plain-text rate.
+// X charges ~$0.20 when a post contains a URL (~13x); the UI flags that but
+// does not bake it into the number (heuristic billing is easy to get wrong).
 const COST_TEXT_USD = 0.015;
-const COST_LINK_USD = 0.2;
-const DEFAULT_FX_USD_AUD = 1.44; // fallback until the cron fetches a live rate
-const FX_URL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=AUD";
+const COST_LINK_USD = 0.2; // documented only; not used for estimates
+
+// Display currencies (X bills in USD; we convert for the UI).
+const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "JPY"];
+const DEFAULT_CURRENCY = "USD";
+// Fallback rates (USD → currency) when frankfurter is unreachable.
+const DEFAULT_FX = {
+  USD: 1,
+  EUR: 0.92,
+  GBP: 0.79,
+  AUD: 1.52,
+  CAD: 1.36,
+  NZD: 1.65,
+  JPY: 150,
+};
+const FX_SYMBOLS = CURRENCIES.filter((c) => c !== "USD").join(",");
+const FX_URL = `https://api.frankfurter.dev/v1/latest?base=USD&symbols=${FX_SYMBOLS}`;
 const FX_MAX_AGE_MS = 12 * 60 * 60 * 1000; // refetch the rate if older than this
 
 export default {
@@ -59,7 +75,8 @@ async function handleApi(request, env, ctx, url) {
 
   // Shared-secret gate with per-IP rate limiting. The passphrase should still be
   // long & random — this is defense-in-depth, not a substitute for entropy.
-  if (env.APP_SECRET) {
+  // Public DEMO instances stay open (no passphrase) so people can click around.
+  if (env.APP_SECRET && !isDemo(env)) {
     const gate = await checkAuth(request, env);
     if (!gate.ok) return json({ ok: false, error: gate.error }, gate.status);
   }
@@ -164,6 +181,28 @@ async function handleApi(request, env, ctx, url) {
       await env.DB.prepare("UPDATE settings SET interval_hours = ?1 WHERE id = 1")
         .bind(hours)
         .run();
+      return json({ ok: true, ...(await getState(env)) });
+    }
+
+    // Display currency for cost estimates (X prices stay USD under the hood).
+    if (pathname === "/api/currency" && method === "POST") {
+      const body = await request.json();
+      const currency = String(body.currency || "").toUpperCase();
+      if (!CURRENCIES.includes(currency)) {
+        return json({ ok: false, error: "Invalid currency." }, 400);
+      }
+      await ensureSettingsSchema(env);
+      await env.DB.prepare(
+        "UPDATE settings SET display_currency = ?1 WHERE id = 1"
+      )
+        .bind(currency)
+        .run();
+      // Force a fresh FX rate for the new currency (isolated failure is fine).
+      try {
+        await refreshFx(env, { force: true });
+      } catch (e) {
+        console.error("fx refresh after currency change failed:", e);
+      }
       return json({ ok: true, ...(await getState(env)) });
     }
 
@@ -456,6 +495,13 @@ async function getState(env) {
   // Ensure review tables + optional kind column exist.
   await ensureReviewSchema(env);
   await ensureQueueKindColumn(env);
+  if (isDemo(env)) {
+    try {
+      await ensureDemoSeed(env);
+    } catch (e) {
+      console.error("demo seed failed:", e);
+    }
+  }
   const settings = await getSettings(env);
 
   const queued = (
@@ -477,9 +523,8 @@ async function getState(env) {
     ).first()
   ).n;
 
-  // Cost estimates. Per-item cost is attached to each row; queued uses the
-  // live heuristic, posted uses the stored charge (falling back to the
-  // heuristic for rows saved before cost tracking existed).
+  // Cost estimates use the plain-text X rate only ($0.015). Links are flagged
+  // in the UI but not priced into the number.
   let queueEstimateUsd = 0;
   for (const q of queued) {
     q.cost_usd = postCostUsd(q.text);
@@ -508,6 +553,8 @@ async function getState(env) {
     : null;
 
   const review = await getReviewState(env);
+  const displayCurrency = normalizeCurrency(settings.display_currency);
+  const fxRate = resolveFxRate(settings, displayCurrency);
 
   return {
     interval_hours: settings.interval_hours,
@@ -518,11 +565,19 @@ async function getState(env) {
     queued,
     history,
     historyTotal,
-    fx_usd_aud: settings.fx_usd_aud || DEFAULT_FX_USD_AUD,
+    // Currency for cost display (X still bills in USD).
+    display_currency: displayCurrency,
+    currencies: CURRENCIES,
+    fx_rate: fxRate,
+    // Legacy field kept so older clients don't break; same as fx_rate when AUD.
+    fx_usd_aud: displayCurrency === "AUD" ? fxRate : DEFAULT_FX.AUD,
+    cost_text_usd: COST_TEXT_USD,
+    cost_link_usd: COST_LINK_USD,
     queue_estimate_usd: queueEstimateUsd,
     total_spent_usd: totalSpentUsd,
     spent_posts: spentPosts,
     review,
+    demo: isDemo(env),
   };
 }
 
@@ -1825,10 +1880,102 @@ async function countRecentPosts(env) {
 }
 
 async function getSettings(env) {
+  await ensureSettingsSchema(env);
   const s = await env.DB.prepare(
-    "SELECT interval_hours, last_posted_at, fx_usd_aud, fx_updated_at FROM settings WHERE id = 1"
+    "SELECT interval_hours, last_posted_at, fx_usd_aud, fx_updated_at, display_currency, fx_rate FROM settings WHERE id = 1"
   ).first();
-  return s || { interval_hours: 3, last_posted_at: null, fx_usd_aud: null, fx_updated_at: null };
+  return (
+    s || {
+      interval_hours: 3,
+      last_posted_at: null,
+      fx_usd_aud: null,
+      fx_updated_at: null,
+      display_currency: DEFAULT_CURRENCY,
+      fx_rate: 1,
+    }
+  );
+}
+
+let settingsSchemaReady = false;
+
+// Lazy columns for currency (CREATE IF NOT EXISTS won't add columns).
+async function ensureSettingsSchema(env) {
+  if (settingsSchemaReady) return;
+  try {
+    await env.DB.prepare(
+      "ALTER TABLE settings ADD COLUMN display_currency TEXT"
+    ).run();
+  } catch (_) {
+    /* already exists */
+  }
+  try {
+    await env.DB.prepare("ALTER TABLE settings ADD COLUMN fx_rate REAL").run();
+  } catch (_) {
+    /* already exists */
+  }
+  // Default currency to USD when null (existing installs may have AUD-era rows).
+  try {
+    await env.DB.prepare(
+      "UPDATE settings SET display_currency = ?1 WHERE id = 1 AND (display_currency IS NULL OR display_currency = '')"
+    )
+      .bind(DEFAULT_CURRENCY)
+      .run();
+  } catch (_) {
+    /* ignore */
+  }
+  settingsSchemaReady = true;
+}
+
+function normalizeCurrency(code) {
+  const c = String(code || "").toUpperCase();
+  return CURRENCIES.includes(c) ? c : DEFAULT_CURRENCY;
+}
+
+function resolveFxRate(settings, currency) {
+  const cur = normalizeCurrency(currency);
+  if (cur === "USD") return 1;
+  if (settings && typeof settings.fx_rate === "number" && settings.fx_rate > 0) {
+    // fx_rate is for the currently selected display_currency.
+    if (normalizeCurrency(settings.display_currency) === cur) return settings.fx_rate;
+  }
+  // Legacy: only AUD rate was cached as fx_usd_aud.
+  if (cur === "AUD" && settings && typeof settings.fx_usd_aud === "number" && settings.fx_usd_aud > 0) {
+    return settings.fx_usd_aud;
+  }
+  return DEFAULT_FX[cur] || 1;
+}
+
+function isDemo(env) {
+  const v = env && env.DEMO;
+  return v === "1" || v === "true" || v === true;
+}
+
+// One-time sample queue for public demos so the UI isn't empty.
+async function ensureDemoSeed(env) {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue WHERE status = 'queued'"
+  ).first();
+  if (row && row.n > 0) return;
+  const posted = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM queue"
+  ).first();
+  // Only seed a brand-new empty DB (not after the user drained the queue).
+  if (posted && posted.n > 0) return;
+
+  const samples = [
+    "shipping something small every day beats waiting for the perfect launch",
+    "the queue is the product - write once, drip on a schedule",
+    "plain text posts stay cheap - save the links for replies",
+    "coach on: honesty first, virality never the goal",
+    "one idea per post. if it needs a thread, it needs another draft",
+  ];
+  const now = Date.now();
+  const stmts = samples.map((text, i) =>
+    env.DB.prepare(
+      "INSERT INTO queue (text, status, created_at, kind) VALUES (?1, 'queued', ?2, NULL)"
+    ).bind(text, now + i)
+  );
+  await env.DB.batch(stmts);
 }
 
 // ---------------------------------------------------------------------------
@@ -1836,6 +1983,10 @@ async function getSettings(env) {
 // ---------------------------------------------------------------------------
 
 async function postTweet(env, text) {
+  // Demo mode: pretend the post succeeded. No X credentials required.
+  if (isDemo(env)) {
+    return "demo_" + Date.now().toString(36);
+  }
   for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) {
     if (!env[k]) throw new Error(`Missing secret ${k}`);
   }
@@ -1942,8 +2093,8 @@ async function checkAuth(request, env) {
   return { ok: true };
 }
 
-// Heuristic: does a post contain a URL/link? X charges $0.20 for link posts vs
-// $0.015 for plain text/media, so this drives the cost estimate.
+// Heuristic: does a post look like it contains a URL? Used only for UI warnings.
+// Cost estimates stay at the plain-text rate regardless.
 function hasLink(text) {
   return (
     /(https?:\/\/|www\.)\S+/i.test(text) ||
@@ -1951,25 +2102,54 @@ function hasLink(text) {
   );
 }
 
-function postCostUsd(text) {
-  return hasLink(text) ? COST_LINK_USD : COST_TEXT_USD;
+// Always the plain-text X rate. Not real billing — just a rough estimate.
+function postCostUsd(_text) {
+  return COST_TEXT_USD;
 }
 
-// Refresh the cached USD->AUD rate from a free FX API (ECB data, no key).
-// No-op if the cached rate is still fresh. Failures are swallowed by the caller.
-async function refreshFx(env) {
+// Refresh the cached USD→display-currency rate (frankfurter / ECB, no key).
+// No-op if the cached rate is still fresh (unless force). Failures are for the caller.
+async function refreshFx(env, opts = {}) {
+  await ensureSettingsSchema(env);
   const s = await getSettings(env);
+  const currency = normalizeCurrency(s.display_currency);
   const now = Date.now();
-  if (s.fx_usd_aud && s.fx_updated_at && now - s.fx_updated_at < FX_MAX_AGE_MS) return;
+
+  if (currency === "USD") {
+    if (s.fx_rate !== 1 || !s.fx_updated_at) {
+      await env.DB.prepare(
+        "UPDATE settings SET fx_rate = 1, fx_usd_aud = ?1, fx_updated_at = ?2, display_currency = 'USD' WHERE id = 1"
+      )
+        .bind(DEFAULT_FX.AUD, now)
+        .run();
+    }
+    return;
+  }
+
+  const fresh =
+    !opts.force &&
+    s.fx_rate &&
+    s.fx_updated_at &&
+    now - s.fx_updated_at < FX_MAX_AGE_MS &&
+    normalizeCurrency(s.display_currency) === currency;
+  if (fresh) return;
+
   const res = await fetch(FX_URL, { headers: { accept: "application/json" } });
   if (!res.ok) return;
   const data = await res.json();
-  const rate = data && data.rates && data.rates.AUD;
-  if (typeof rate === "number" && rate > 0) {
-    await env.DB.prepare("UPDATE settings SET fx_usd_aud = ?1, fx_updated_at = ?2 WHERE id = 1")
-      .bind(rate, now)
-      .run();
-  }
+  const rates = (data && data.rates) || {};
+  const rate = rates[currency];
+  if (typeof rate !== "number" || rate <= 0) return;
+
+  // Keep fx_usd_aud filled for any code still reading the legacy column.
+  const audRate =
+    typeof rates.AUD === "number" && rates.AUD > 0 ? rates.AUD : DEFAULT_FX.AUD;
+
+  await env.DB.prepare(
+    "UPDATE settings SET fx_rate = ?1, fx_usd_aud = ?2, fx_updated_at = ?3 WHERE id = 1"
+  )
+    .bind(rate, audRate, now)
+    .run();
 }
 
 // Constant-time string compare (avoids leaking match progress via timing).

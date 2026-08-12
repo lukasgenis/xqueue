@@ -1,0 +1,29 @@
+# Demo instance of xqueue — isolated from production.
+# Deploy with:  npx wrangler deploy --config wrangler.demo.toml
+#
+# - Separate Worker name + D1 (never reuses production database_id)
+# - DEMO=1: posts never hit X; sample queue seeded on empty DB; no passphrase
+# - No X OAuth secrets, no APP_SECRET required
+
+name = "xqueue-demo"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Cron still runs; posts are faked so nothing reaches X.
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "xqueue-demo"
+database_id = "25d9d112-4bd7-4406-bfe5-ebae2ae83f20"
+
+[ai]
+binding = "AI"
+
+[vars]
+DEMO = "1"

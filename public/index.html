@@ -100,14 +100,14 @@
       margin-bottom: 6px;
     }
     .composer-head .ctl-label { margin: 0; }
-    /* Custom coach picker - same materials as confirm modal (panel, border, shadow). */
-    .coach-mode {
+    /* Custom pickers (coach, currency) - same materials as confirm modal. */
+    .picker {
       position: relative;
       display: flex; align-items: center; gap: 8px;
       font-size: 12px; color: var(--muted);
     }
-    .coach-mode-label { white-space: nowrap; }
-    .coach-mode-btn {
+    .picker-label { white-space: nowrap; }
+    .picker-btn {
       display: inline-flex; align-items: center; gap: 6px;
       font: inherit; font-size: 13px; font-weight: 500; color: var(--text);
       background: var(--panel-2); border: 1px solid var(--border);
@@ -116,29 +116,29 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       transition: border-color .12s, background .12s;
     }
-    .coach-mode-btn:hover { border-color: var(--accent-dim); }
-    .coach-mode-btn[aria-expanded="true"] {
+    .picker-btn:hover { border-color: var(--accent-dim); }
+    .picker-btn[aria-expanded="true"] {
       border-color: var(--accent-dim);
       background: var(--panel);
     }
-    .coach-mode-btn .coach-chevron {
+    .picker-btn .picker-chevron {
       font-size: 10px; color: var(--muted); line-height: 1;
       transition: transform .15s ease;
     }
-    .coach-mode-btn[aria-expanded="true"] .coach-chevron { transform: rotate(180deg); }
-    .coach-menu {
+    .picker-btn[aria-expanded="true"] .picker-chevron { transform: rotate(180deg); }
+    .picker-menu {
       position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
       min-width: 220px; width: max-content; max-width: min(280px, calc(100vw - 32px));
       background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
       padding: 8px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
       display: flex; flex-direction: column; gap: 4px;
     }
-    .coach-menu[hidden] { display: none !important; }
-    .coach-menu-title {
+    .picker-menu[hidden] { display: none !important; }
+    .picker-menu-title {
       margin: 2px 8px 6px; font-size: 11px; color: var(--muted);
       text-transform: uppercase; letter-spacing: .06em;
     }
-    .coach-opt {
+    .picker-opt {
       display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
       width: 100%; text-align: left;
       background: transparent; border: 1px solid transparent;
@@ -146,14 +146,23 @@
       color: var(--text); font: inherit; font-size: 14px; font-weight: 500;
       cursor: pointer; transition: background .12s, border-color .12s;
     }
-    .coach-opt:hover { background: var(--panel-2); border-color: var(--border); }
-    .coach-opt[aria-selected="true"] {
+    .picker-opt:hover { background: var(--panel-2); border-color: var(--border); }
+    .picker-opt[aria-selected="true"] {
       background: var(--panel-2); border-color: var(--accent-dim);
     }
-    .coach-opt[aria-selected="true"] .coach-opt-name { color: var(--accent); }
-    .coach-opt-name { line-height: 1.2; }
-    .coach-opt-desc {
+    .picker-opt[aria-selected="true"] .picker-opt-name { color: var(--accent); }
+    .picker-opt-name { line-height: 1.2; }
+    .picker-opt-desc {
       font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.35;
+    }
+    /* Currency picker sits in the header; slightly tighter. */
+    .header-right .picker { gap: 6px; }
+    .header-right .picker-btn { padding: 5px 10px 5px 12px; font-size: 12px; }
+    .header-right .picker-menu { min-width: 180px; }
+    .demo-banner {
+      margin: 0 0 14px; padding: 10px 14px;
+      background: #1a2418; border: 1px solid #2f4a2a; border-radius: 10px;
+      color: #a8d4a0; font-size: 13px; line-height: 1.4;
     }
     textarea {
       width: 100%; min-height: 96px; resize: vertical;
@@ -640,31 +649,47 @@
     <header>
       <h1 class="logo">xqueue</h1>
       <div class="header-right">
+        <div class="picker" id="currencyWrap">
+          <button type="button" class="picker-btn" id="currencyBtn"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="currencyMenu"
+                  title="Display currency for cost estimates (X bills in USD)">
+            <span id="currencyValue">USD</span>
+            <span class="picker-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="picker-menu" id="currencyMenu" role="listbox" aria-label="Display currency" hidden>
+            <div class="picker-menu-title">Cost display</div>
+            <!-- options filled by JS from state.currencies -->
+          </div>
+        </div>
         <span class="usage" id="usage"></span>
         <button class="lockbtn" id="lockBtn" title="Lock (sign out)" aria-label="Lock">🔒 Lock</button>
       </div>
     </header>
 
+    <div class="demo-banner" id="demoBanner" hidden>
+      Demo mode - posts are not sent to X. Explore freely; data is local to this instance.
+    </div>
+
     <div class="composer" id="composer">
       <div class="composer-head">
         <span class="ctl-label">Write</span>
-        <div class="coach-mode" id="coachModeWrap">
-          <span class="coach-mode-label">Coach</span>
-          <button type="button" class="coach-mode-btn" id="coachModeBtn"
+        <div class="picker" id="coachModeWrap">
+          <span class="picker-label">Coach</span>
+          <button type="button" class="picker-btn" id="coachModeBtn"
                   aria-haspopup="listbox" aria-expanded="false" aria-controls="coachMenu"
                   title="Writing coach - honesty &amp; specificity, not virality">
             <span id="coachModeValue">on</span>
-            <span class="coach-chevron" aria-hidden="true">▾</span>
+            <span class="picker-chevron" aria-hidden="true">▾</span>
           </button>
-          <div class="coach-menu" id="coachMenu" role="listbox" aria-label="Coach mode" hidden>
-            <div class="coach-menu-title">Writing coach</div>
-            <button type="button" class="coach-opt" role="option" data-value="off" aria-selected="false">
-              <span class="coach-opt-name">off</span>
-              <span class="coach-opt-desc">Silent - just the box</span>
+          <div class="picker-menu" id="coachMenu" role="listbox" aria-label="Coach mode" hidden>
+            <div class="picker-menu-title">Writing coach</div>
+            <button type="button" class="picker-opt" role="option" data-value="off" aria-selected="false">
+              <span class="picker-opt-name">off</span>
+              <span class="picker-opt-desc">Silent - just the box</span>
             </button>
-            <button type="button" class="coach-opt" role="option" data-value="on" aria-selected="true">
-              <span class="coach-opt-name">on</span>
-              <span class="coach-opt-desc">AI question + suggestions after you pause</span>
+            <button type="button" class="picker-opt" role="option" data-value="on" aria-selected="true">
+              <span class="picker-opt-name">on</span>
+              <span class="picker-opt-desc">AI question + suggestions after you pause</span>
             </button>
           </div>
         </div>
@@ -870,14 +895,17 @@
     }
 
     // Validate a passphrase by hitting /api/state. On success, unlock + store.
+    // Empty pass is used for open demos (server skips auth when DEMO=1).
     async function tryUnlock(pass) {
-      secret = pass;
+      secret = pass == null ? "" : String(pass);
       try {
         const res = await fetch("/api/state", {
           headers: { "content-type": "application/json", "x-app-secret": secret },
         });
         if (res.ok) {
-          localStorage.setItem("xqueue_secret", secret);
+          // Only persist a real passphrase; open demo leaves storage empty.
+          if (secret) localStorage.setItem("xqueue_secret", secret);
+          else localStorage.removeItem("xqueue_secret");
           state = await res.json();
           hideLogin();
           render();
@@ -886,11 +914,12 @@
         const data = await res.json().catch(() => ({}));
         secret = "";
         localStorage.removeItem("xqueue_secret");
-        showLogin(data.error || "Incorrect passphrase.");
+        // Caller may show login; avoid flashing error during open-access probe.
+        if (pass) showLogin(data.error || "Incorrect passphrase.");
         return false;
       } catch (e) {
         secret = "";
-        showLogin("Connection error - try again.");
+        if (pass) showLogin("Connection error - try again.");
         return false;
       }
     }
@@ -993,12 +1022,115 @@
       return val + " day"; // attributive ("14 day runway"), always singular
     }
 
-    // Cost helpers (X prices in USD; we display AUD via the cron-cached rate).
-    function fxRate() { return state && state.fx_usd_aud ? state.fx_usd_aud : 1.44; }
-    function aud(usd, dp = 2) { return "A$" + (Number(usd || 0) * fxRate()).toFixed(dp); }
+    // Cost helpers: X prices in USD (plain-text unit). Display currency via fx_rate.
+    // Estimates always use the plain-text rate; links are flagged but not re-priced.
+    const CURRENCY_META = {
+      USD: { symbol: "$", name: "US dollar" },
+      EUR: { symbol: "€", name: "Euro" },
+      GBP: { symbol: "£", name: "British pound" },
+      AUD: { symbol: "A$", name: "Australian dollar" },
+      CAD: { symbol: "C$", name: "Canadian dollar" },
+      NZD: { symbol: "NZ$", name: "New Zealand dollar" },
+      JPY: { symbol: "¥", name: "Japanese yen" },
+    };
+    const COST_TEXT_USD = 0.015;
+    function displayCurrency() {
+      return (state && state.display_currency) || "USD";
+    }
+    function fxRate() {
+      if (state && typeof state.fx_rate === "number" && state.fx_rate > 0) return state.fx_rate;
+      // Legacy fallback for older servers that only sent fx_usd_aud.
+      if (displayCurrency() === "AUD" && state && state.fx_usd_aud) return state.fx_usd_aud;
+      return 1;
+    }
+    function money(usd, dp) {
+      const cur = displayCurrency();
+      const meta = CURRENCY_META[cur] || CURRENCY_META.USD;
+      const n = Number(usd || 0) * fxRate();
+      const digits = dp != null ? dp : (cur === "JPY" ? 0 : 2);
+      return meta.symbol + n.toFixed(digits);
+    }
+    // Back-compat alias used in a few call sites if any remain.
+    function aud(usd, dp) { return money(usd, dp); }
     function textHasLink(t) {
       return /(https?:\/\/|www\.)\S+/i.test(t) ||
         /\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|xyz|me|gg|so|to|tv|info|link|page|site|news|blog|store|shop)\b/i.test(t);
+    }
+
+    function syncCurrencyPicker() {
+      const cur = displayCurrency();
+      const label = document.getElementById("currencyValue");
+      if (label) label.textContent = cur;
+      const menu = document.getElementById("currencyMenu");
+      if (!menu) return;
+      const list = (state && state.currencies) || Object.keys(CURRENCY_META);
+      // Rebuild options when the list is empty or currency set changed.
+      const existing = menu.querySelectorAll(".picker-opt");
+      if (existing.length !== list.length) {
+        // Keep the title node; replace options.
+        menu.querySelectorAll(".picker-opt").forEach((el) => el.remove());
+        list.forEach((code) => {
+          const meta = CURRENCY_META[code] || { symbol: code, name: code };
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "picker-opt";
+          btn.setAttribute("role", "option");
+          btn.dataset.value = code;
+          btn.innerHTML =
+            `<span class="picker-opt-name">${code}</span>` +
+            `<span class="picker-opt-desc">${meta.symbol} · ${meta.name}</span>`;
+          btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await setCurrency(code);
+          });
+          menu.appendChild(btn);
+        });
+      }
+      menu.querySelectorAll(".picker-opt").forEach((btn) => {
+        btn.setAttribute("aria-selected", btn.dataset.value === cur ? "true" : "false");
+      });
+    }
+
+    async function setCurrency(code) {
+      closeCurrencyMenu();
+      if (!code || code === displayCurrency()) return;
+      try {
+        const res = await api("/api/currency", {
+          method: "POST",
+          body: JSON.stringify({ currency: code }),
+        });
+        if (res.ok) {
+          state = res;
+          syncCurrencyPicker();
+          render();
+          toast("Currency: " + code);
+        } else {
+          toast(res.error || "Couldn't change currency");
+        }
+      } catch (e) { /* handled in api() */ }
+    }
+
+    function openCurrencyMenu() {
+      closeCoachMenu();
+      const menu = document.getElementById("currencyMenu");
+      const btn = document.getElementById("currencyBtn");
+      if (!menu || !btn) return;
+      syncCurrencyPicker();
+      menu.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+    }
+    function closeCurrencyMenu() {
+      const menu = document.getElementById("currencyMenu");
+      const btn = document.getElementById("currencyBtn");
+      if (!menu || !btn) return;
+      menu.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+    }
+    function toggleCurrencyMenu() {
+      const menu = document.getElementById("currencyMenu");
+      if (!menu) return;
+      if (menu.hidden) openCurrencyMenu();
+      else closeCurrencyMenu();
     }
 
     function reviewItems() {
@@ -1008,6 +1140,14 @@
     function render() {
       if (!state) return;
       const scrollY = window.scrollY; // preserve position across the list rebuild
+
+      const demoBanner = document.getElementById("demoBanner");
+      if (demoBanner) demoBanner.hidden = !state.demo;
+      // Demo is open (no passphrase) - hide lock; production keeps it.
+      const lockBtn = document.getElementById("lockBtn");
+      if (lockBtn) lockBtn.hidden = !!state.demo;
+
+      syncCurrencyPicker();
 
       // Interval selector - purely the queue's drain cadence (global).
       const box = document.getElementById("intervals");
@@ -1108,7 +1248,7 @@
               ${i === 0 ? '<span class="badge next">next</span>' : `<span>#${i + 1} in line</span>`}
               <span class="char-meta${qOver ? " over" : ""}">${qLen} / ${MAX_LEN}</span>
               <span>added ${fmtWhen(item.created_at)}</span>
-              <span>· ${aud(item.cost_usd)}${textHasLink(item.text) ? " (link)" : ""}${isBolt ? '<span class="kind-bolt" title="Lightning">⚡</span>' : ""}</span>
+              <span>· ${money(item.cost_usd)}${textHasLink(item.text) ? ' <span class="cost link" title="X charges much more for posts with URLs; estimate is plain text only">(link)</span>' : ""}${isBolt ? '<span class="kind-bolt" title="Lightning">⚡</span>' : ""}</span>
             </div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
@@ -1210,7 +1350,7 @@
           : "";
         const link = item.tweet_id ? ` &middot; <a href="https://x.com/i/web/status/${item.tweet_id}" target="_blank" rel="noopener">view</a>` : "";
         const err = item.error ? ` &middot; ${escapeHtml(item.error).slice(0, 120)}` : "";
-        const costBit = item.status === "posted" ? " · " + aud(item.cost_usd) + bolt : "";
+        const costBit = item.status === "posted" ? " · " + money(item.cost_usd) + bolt : "";
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
@@ -1339,15 +1479,15 @@
             const empties = new Date(Date.now() + runwayDays * 86400000)
               .toLocaleDateString(undefined, { month: "short", day: "numeric" });
             summary.textContent =
-              `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${aud(state.queue_estimate_usd)} to send`;
+              `~${fmtRunway(runwayDays)} runway (empties ${empties}) · ≈ ${money(state.queue_estimate_usd)} to send (plain text est.)`;
           } else if (state.queued.length) {
             // Paused: no drain cadence, so no runway - just the cost to send.
-            summary.textContent = `Paused · ≈ ${aud(state.queue_estimate_usd)} to send`;
+            summary.textContent = `Paused · ≈ ${money(state.queue_estimate_usd)} to send (plain text est.)`;
           } else {
             summary.textContent = "";
           }
         } else {
-          summary.textContent = `${aud(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
+          summary.textContent = `${money(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted (plain text est.)`;
         }
       }
     }
@@ -1422,11 +1562,13 @@
       document.getElementById("add").disabled = !shipOk;
       document.getElementById("postNow").disabled = !shipOk;
 
-      // Live cost estimate for the current post (flags links - 13x pricier).
+      // Live cost estimate: always plain-text unit price; warn if a link is present.
       const costEl = document.getElementById("costEst");
       const link = n > 0 && textHasLink(ta.value);
-      const usd = link ? 0.2 : 0.015;
-      costEl.textContent = n === 0 ? "" : "· " + aud(usd) + (link ? " · link" : "");
+      const unit = (state && state.cost_text_usd) || COST_TEXT_USD;
+      costEl.textContent = n === 0
+        ? ""
+        : "· " + money(unit) + (link ? " · link (not in est.)" : "");
       costEl.classList.toggle("link", link);
 
       scheduleCoach();
@@ -1452,7 +1594,7 @@
       localStorage.setItem(COACH_MODE_KEY, value);
       const label = document.getElementById("coachModeValue");
       if (label) label.textContent = value;
-      document.querySelectorAll("#coachMenu .coach-opt").forEach((btn) => {
+      document.querySelectorAll("#coachMenu .picker-opt").forEach((btn) => {
         btn.setAttribute("aria-selected", btn.dataset.value === value ? "true" : "false");
       });
       closeCoachMenu();
@@ -1463,6 +1605,7 @@
     }
 
     function openCoachMenu() {
+      closeCurrencyMenu();
       const menu = document.getElementById("coachMenu");
       const btn = document.getElementById("coachModeBtn");
       if (!menu || !btn) return;
@@ -1659,8 +1802,10 @@
             document.getElementById("postNow").disabled = !shipOk;
             const costEl = document.getElementById("costEst");
             const link = n > 0 && textHasLink(ta.value);
-            const usd = link ? 0.2 : 0.015;
-            costEl.textContent = n === 0 ? "" : "· " + aud(usd) + (link ? " · link" : "");
+            const unit = (state && state.cost_text_usd) || COST_TEXT_USD;
+            costEl.textContent = n === 0
+              ? ""
+              : "· " + money(unit) + (link ? " · link (not in est.)" : "");
             costEl.classList.toggle("link", link);
             ta.focus();
           };
@@ -1766,27 +1911,44 @@
     (function initCoachMode() {
       const saved = localStorage.getItem(COACH_MODE_KEY);
       setCoachMode(normalizeCoachMode(saved || "on"), { silent: true });
-      // If label still said "pause" from HTML default, sync.
       document.getElementById("coachModeValue").textContent = coachMode();
       document.getElementById("coachModeBtn").addEventListener("click", (e) => {
         e.stopPropagation();
+        closeCurrencyMenu();
         toggleCoachMenu();
       });
-      document.querySelectorAll("#coachMenu .coach-opt").forEach((btn) => {
+      document.querySelectorAll("#coachMenu .picker-opt").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           setCoachMode(btn.dataset.value);
         });
       });
-      document.addEventListener("click", (e) => {
-        const wrap = document.getElementById("coachModeWrap");
-        if (!wrap || wrap.contains(e.target)) return;
+    })();
+
+    // Currency picker (same visual language as coach).
+    (function initCurrencyPicker() {
+      const btn = document.getElementById("currencyBtn");
+      if (!btn) return;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
         closeCoachMenu();
-      });
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") closeCoachMenu();
+        toggleCurrencyMenu();
       });
     })();
+
+    // Shared outside-click / Escape for both pickers.
+    document.addEventListener("click", (e) => {
+      const coachWrap = document.getElementById("coachModeWrap");
+      const curWrap = document.getElementById("currencyWrap");
+      if (coachWrap && !coachWrap.contains(e.target)) closeCoachMenu();
+      if (curWrap && !curWrap.contains(e.target)) closeCurrencyMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeCoachMenu();
+        closeCurrencyMenu();
+      }
+    });
 
     // Queue / History tabs
     document.getElementById("tabQueue").addEventListener("click", () => { activeTab = "queue"; applyTab(); });
@@ -2836,11 +2998,17 @@
     });
 
     updateCount();
-    if (secret) {
-      tryUnlock(secret); // validate the stored passphrase; shows login if invalid
-    } else {
-      showLogin();
-    }
+    // Boot: try stored passphrase, then open access (demo / no APP_SECRET).
+    // Demo instances skip auth server-side so empty secret succeeds.
+    (async function boot() {
+      if (secret) {
+        const ok = await tryUnlock(secret);
+        if (ok) return;
+      }
+      // Open / demo: no passphrase required.
+      const openOk = await tryUnlock("");
+      if (!openOk) showLogin();
+    })();
     setInterval(refresh, 30000); // keep countdown / usage fresh
   </script>
 </body>

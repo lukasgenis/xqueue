@@ -5,87 +5,70 @@ user-facing feature/setup docs.
 
 ## What this is
 
-A private, single-user X/Twitter post scheduler. Cloudflare **Worker with static
-assets** (NOT Pages) + **D1** + a cron. Live at
-`https://xqueue.lukas-genis.workers.dev` (Cloudflare account `lukasgenis@outlook.com`).
+A **single-user** X/Twitter post scheduler. Cloudflare **Worker with static
+assets** (NOT Pages) + **D1** + a 15‑minute cron. Self-hosted: each person
+deploys their own instance with their own X OAuth 1.0a credentials and
+`APP_SECRET` passphrase.
+
+Optional **demo mode** (`DEMO=1` var, `wrangler.demo.toml`): fake tweet ids, no
+X secrets, no passphrase (auth skipped), sample queue seed, UI banner. Same
+repo — separate Worker name + D1 only. Do not put demo on a long-lived fork
+branch; it will drift.
 
 ## Layout
 
-- `src/index.js` - the whole Worker: `fetch()` (static assets + `/api/*`) and
-  `scheduled()` (cron). No framework, no build step.
-- `public/index.html` - entire UI: one file, inline CSS + vanilla JS, no deps.
-- `schema.sql` - D1 schema (idempotent CREATEs). Column additions to existing
-  tables need live `ALTER TABLE` (CREATE IF NOT EXISTS will not add columns).
-  The Worker also lazily ensures some columns/tables (e.g. `queue.kind`, review).
-- `wrangler.toml` - Worker config, D1 binding (`DB`), AI binding, cron.
+- `src/index.js` — whole Worker: `fetch()` (static + `/api/*`) and `scheduled()`
+- `public/index.html` — entire UI (inline CSS + vanilla JS, no build step)
+- `schema.sql` — D1 schema (idempotent CREATEs). New columns need live
+  `ALTER TABLE` (Worker also lazily ensures some columns/tables)
+- `wrangler.toml` — Worker config, D1, AI binding, cron, optional `DEMO` var
+- `deploy.sh` — optional helper that loads a local Cloudflare API token and
+  runs `wrangler deploy` (not required; git push / `npx wrangler deploy` is fine)
 
 ## Deploy / workflow
 
-- **Always:** edit → **commit** → **push** to `main`. GitHub
-  (`lukasgenis/xqueue`, private) → Cloudflare Git integration → `wrangler deploy`.
-  Live ~30-60s after push.
-- **Do not** run `npx wrangler deploy` unless the user explicitly asks. Git push
-  is the source of truth for versions and production.
-- After pushing, verify with a marker on the live URL if needed (static assets
-  can lag the worker by a few seconds).
-- Secrets in Cloudflare only, never in git: `X_API_KEY`, `X_API_SECRET`,
-  `X_ACCESS_TOKEN`, `X_ACCESS_SECRET`, `APP_SECRET`.
+- Prefer: edit → **commit** → **push** to default branch → Cloudflare Git
+  auto-deploy when configured
+- Do not run `wrangler deploy` unless the user asks for a direct deploy
+- Secrets only in Cloudflare / `.dev.vars` (gitignored): `X_API_KEY`,
+  `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET`, `APP_SECRET`
+- Forks must create their **own** D1 and paste `database_id` into `wrangler.toml`
 
 ## Product surface (keep docs in sync when changing)
 
 - **Landing composer:** Queue + Post now only. Coach off|on (localStorage
-  `xqueue_coach_mode`; old values `pause`/`local` map to `on`).
-- **Lightning:** not a vault. When coach is **on** and the user Queues or Posts
-  from the **landing** textbox, send `kind: "lightning"`. Show plain ⚡ after
-  cost on queue + history. Bulk import and Review accept never set kind.
-- **Coach** `POST /api/spark/coach`: X-native craft (specificity, charge, form
-  match). Question-led drafts must keep question cuts. Cuts = high-bone finished
-  lines (lowercase, no terminal period). Tapping a cut applies it without
-  immediately re-coaching into a rewrite loop.
-- **Review generate** still uses history/queue as voice samples (separate from
-  coach). Same model: `@cf/mistralai/mistral-small-3.1-24b-instruct`.
-- No neuron usage meter in the UI (CF free pool is account-wide; we do not fake
-  a live remaining balance).
-- Avoid em dashes in the frontend UI copy.
+  `xqueue_coach_mode`; old values `pause`/`local` map to `on`)
+- **Lightning:** when coach is **on** and user Queues/Posts from the **landing**
+  box, send `kind: "lightning"`. Bulk import and Review accept never set kind
+- **Coach** `POST /api/spark/coach`: X-native craft. Cuts = finished lines
+  (lowercase, no terminal period)
+- **Currency:** `POST /api/currency` + `settings.display_currency` /
+  `settings.fx_rate`. Default **USD**. Options: USD, EUR, GBP, AUD, CAD, NZD,
+  JPY. FX via frankfurter.dev (cron-refreshed). UI picker matches coach picker
+  styles (`.picker` / `.picker-btn` / `.picker-menu`)
+- **Costs:** always plain-text unit `$0.015` USD under the hood; convert with
+  `fx_rate` for display. Links are flagged in UI but **not** re-priced. Do not
+  pretend the estimate is X’s real invoice
+- No neuron usage meter that fakes a live remaining balance
+- Avoid em dashes in frontend UI copy
 
-## Conventions / gotchas (learned the hard way)
+## Conventions / gotchas
 
-- **`[hidden]` vs `display`**: any element toggled via the `hidden` attribute that
-  also has a CSS `display` (flex/grid) needs the `[hidden]` to win. There's a
-  global `[hidden] { display: none !important }` guard - keep it. This bit the
-  login overlay, the modal, and the tab lists.
-- **No native dialogs**: use `confirmDialog()` (custom modal) and the login page,
-  never `prompt()`/`confirm()`/`alert()`.
-- **Auth**: every `/api/*` call needs the `x-app-secret` header. Backend does
-  per-IP rate limiting (`auth_attempts` table) + constant-time compare.
-- **X posting**: OAuth 1.0a user-context, signed in-Worker with Web Crypto
-  (HMAC-SHA1). The signature base string excludes the JSON body. Verified against
-  Twitter's documented test vector - don't "simplify" the pct-encoding or sort.
-- **D1 read-after-write lag**: rapid successive writes can read stale (seen with
-  the reorder swap and the rate-limit counter). Serialize client actions where it
-  matters (see the `moving` guard); each API response is authoritative.
-- **Cost/FX**: X prices in USD ($0.015 text / $0.20 link); displayed in AUD via a
-  cron-cached `fx_usd_aud` (frankfurter.dev) with a fallback constant. Per-post
-  `cost_usd` is stored at post time so totals are a cheap SUM.
-- **Daily cap**: `DAILY_CAP = 17` (matches X Free rate limit) is a client-side
-  safety throttle enforced in the scheduler and both post-now paths.
-- **Mobile**: 16px inputs (iOS zoom), tap-to-reveal per-post actions, keyboard-
-  aware edit box, stacked composer actions ≤520px. Test layout changes at ≤520px.
-- **Review deck**: tables `review_items` + `review_undo` (single-row undo). Created
-  lazily via `ensureReviewSchema()` on `/api/state` so deploys work without a
-  manual migration; `schema.sql` still has the canonical DDL. Accept inserts into
-  `queue` immediately; reject deletes; over-280 may sit in the deck but accept
-  is rejected server-side. Don't drop the 280 cap without a product decision.
-- **Workers AI**: `[ai] binding = "AI"` in wrangler.toml. Review generate +
-  coach. Free Neurons are daily on the CF account; no API key secret for Workers AI.
-- **queue.kind**: lazy `ALTER TABLE` via `ensureQueueKindColumn`. Values: null or
-  `'lightning'`. Selected in state/history queries.
-- **fmtCountdown**: sub-minute remaining displays as `now` (never `in 0m`).
-- Legacy `/api/sparks*` may still be in the Worker; UI does not use a vault.
+- **`[hidden]` vs `display`:** global `[hidden] { display: none !important }`
+- **No native dialogs:** `confirmDialog()` and login page only
+- **Auth:** `x-app-secret` header; rate limit + constant-time compare
+- **X posting:** OAuth 1.0a, Web Crypto HMAC-SHA1; signature base excludes JSON body
+- **D1 read-after-write lag:** serialize client actions where it matters
+- **Daily cap:** `DAILY_CAP = 17` in scheduler and post-now paths
+- **Mobile:** 16px inputs, tap-to-reveal actions, stacked composer ≤520px
+- **Review deck:** lazy `ensureReviewSchema()`; accept inserts into `queue`
+- **Workers AI:** `[ai] binding = "AI"`; model
+  `@cf/mistralai/mistral-small-3.1-24b-instruct`
+- **queue.kind:** null or `'lightning'`
+- **fmtCountdown:** sub-minute remaining → `now`
+- **DEMO:** `env.DEMO` in `{"1","true",true}` short-circuits `postTweet`
 
 ## Verifying changes
 
-Prefer driving the real deployed endpoint (seed test rows via
-`wrangler d1 execute ... --command "INSERT ..."`, exercise the API, assert, then
-clean up the test rows). Don't fire real posts in tests - that spends X credits
-and hits the live timeline.
+Prefer the real deployed endpoint when testing. Don’t fire real posts in tests
+unless intentional — that spends X credits.
