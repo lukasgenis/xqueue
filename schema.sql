@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS review_undo (
 
 INSERT OR IGNORE INTO review_undo (id) VALUES (1);
 
+-- Demo AI rate limits (per IP, pruned by cron after 24h). Only used when DEMO=1.
+CREATE TABLE IF NOT EXISTS demo_ai_calls (
+  ip   TEXT    NOT NULL,
+  kind TEXT    NOT NULL,  -- coach | generate
+  ts   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demo_ai_ip_kind_ts ON demo_ai_calls (ip, kind, ts);
+
 -- Sparks vault: feeling-first drafts (Lightning), separate from the production queue.
 -- status: draft | cooling | private | queued | posted
 CREATE TABLE IF NOT EXISTS sparks (

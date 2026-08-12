@@ -670,6 +670,7 @@
 
     <div class="demo-banner" id="demoBanner" hidden>
       Demo mode - posts are not sent to X. Explore freely; data is local to this instance.
+      <span id="demoAiNote"></span>
     </div>
 
     <div class="composer" id="composer">
@@ -1195,6 +1196,7 @@
       // Lock only for passphrase-protected instances (not demo / open access).
       const lockBtn = document.getElementById("lockBtn");
       if (lockBtn) lockBtn.hidden = !!state.demo;
+      updateDemoAiNote();
 
       syncCurrencyPicker();
 
@@ -1893,11 +1895,38 @@
       }
     }
 
+    function updateDemoAiNote() {
+      const el = document.getElementById("demoAiNote");
+      if (!el) return;
+      if (!state || !state.demo || !state.demo_ai) {
+        el.textContent = "";
+        return;
+      }
+      const a = state.demo_ai;
+      const left = a.coach_remaining != null ? a.coach_remaining : "?";
+      const lim = a.coach_limit != null ? a.coach_limit : 5;
+      el.textContent = " · Coach AI: " + left + "/" + lim + " left today (per network)";
+    }
+
+    function mergeDemoAi(res) {
+      if (!res || !res.demo_ai) return;
+      state = { ...(state || {}), demo_ai: res.demo_ai };
+      updateDemoAiNote();
+    }
+
     async function runAiCoach(text) {
       text = (text || "").trim();
       if (!text || coachMode() !== "on") return;
       const key = text;
       if (key === lastCoachKey) return;
+      // Demo: don't spam the server once the local remaining count is 0.
+      if (state && state.demo && state.demo_ai && state.demo_ai.coach_remaining <= 0) {
+        showCoachError(
+          text,
+          "Demo coach limit reached (5/day). Self-host xqueue for unlimited coach."
+        );
+        return;
+      }
       const id = ++coachReqId;
       showCoachLoading(text);
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -1910,10 +1939,14 @@
         });
         if (id !== coachReqId) return; // stale
         if (res.ai) state = { ...(state || {}), ai: res.ai };
+        mergeDemoAi(res);
         if (typeof updateUsageLine === "function") updateUsageLine();
         if (res.ok && res.coach && res.coach.question) {
           lastCoachKey = key;
-          showCoach(res.coach, "coach · ai");
+          const left = res.demo_ai && res.demo_ai.coach_remaining != null
+            ? " · demo " + res.demo_ai.coach_remaining + " left"
+            : "";
+          showCoach(res.coach, "coach · ai" + left);
         } else {
           // Don't cache failures - allow retry on same text.
           showCoachError(text, res.error || "Coach returned nothing");
@@ -2775,6 +2808,7 @@
         });
         if (res.ok) {
           state = res;
+          mergeDemoAi(res);
           render();
           // Stay on the paste/list panel - don't force swipe after a long AI wait.
           openReviewPanel();
@@ -2786,6 +2820,7 @@
               : `${n} generated · added to deck`;
           toast(msg, { duration: 4500 });
         } else {
+          mergeDemoAi(res);
           toast(res.error || "Generate failed");
         }
       } catch (e) {

@@ -19,6 +19,9 @@ Posts are faked, the queue is a **separate** D1 with sample dummy text, and no
 X secrets are configured. Same repo as production; only a second deploy target
 (`wrangler.demo.toml`).
 
+**Demo AI limits** (per visitor network / 24h, server-side): **5** writing-coach
+calls and **2** Review generate batches. Self-host for unlimited Workers AI.
+
 ```sh
 # re-deploy the public demo (maintainers)
 npx wrangler deploy --config wrangler.demo.toml

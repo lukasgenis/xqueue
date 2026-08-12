@@ -34,6 +34,10 @@ const COST_LINK_USD = 0.2; // documented only; not used for estimates
 const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "JPY"];
 const DEFAULT_CURRENCY = "USD";
 const DEFAULT_INTERVAL_HOURS = 6; // new installs / missing settings row
+// Open demo: cap Workers AI so strangers can't burn the free Neuron pool.
+const DEMO_AI_COACH_LIMIT = 5; // coach calls per IP per 24h
+const DEMO_AI_GENERATE_LIMIT = 2; // Review generate batches per IP per 24h
+const DEMO_AI_WINDOW_MS = DAY_MS;
 // Fallback rates (USD → currency) when frankfurter is unreachable.
 const DEFAULT_FX = {
   USD: 1,
@@ -87,7 +91,7 @@ async function handleApi(request, env, ctx, url) {
     const method = request.method;
 
     if (pathname === "/api/state" && method === "GET") {
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Older history pages for the "Load more" button. Cursor-based on the
@@ -113,18 +117,18 @@ async function handleApi(request, env, ctx, url) {
 
     if (pathname === "/api/queue" && method === "POST") {
       const body = await request.json();
-      return await addToQueue(env, String(body.text || ""), body.kind);
+      return await addToQueue(env, String(body.text || ""), body.kind, request);
     }
 
     // Bulk import: add many posts at once. Body: { texts: string[] }.
     if (pathname === "/api/queue/bulk" && method === "POST") {
       const body = await request.json();
-      return await addBulk(env, Array.isArray(body.texts) ? body.texts : []);
+      return await addBulk(env, Array.isArray(body.texts) ? body.texts : [], request);
     }
 
     // Shuffle the whole queue into a random order (reorders only; nothing lost).
     if (pathname === "/api/queue/shuffle" && method === "POST") {
-      return await shuffleQueue(env);
+      return await shuffleQueue(env, request);
     }
 
     // /api/queue/:id  (DELETE)
@@ -133,7 +137,7 @@ async function handleApi(request, env, ctx, url) {
       await env.DB.prepare("DELETE FROM queue WHERE id = ?1 AND status = 'queued'")
         .bind(Number(del[1]))
         .run();
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Edit the text of a still-queued post. Only 'queued' rows are editable —
@@ -154,7 +158,7 @@ async function handleApi(request, env, ctx, url) {
       if (!res.meta || res.meta.changes === 0) {
         return json({ ok: false, error: "Post not found or already posted." }, 404);
       }
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Reorder a queued post up/down one slot by swapping timestamps with its
@@ -162,13 +166,13 @@ async function handleApi(request, env, ctx, url) {
     const mv = pathname.match(/^\/api\/queue\/(\d+)\/move$/);
     if (mv && method === "POST") {
       const body = await request.json();
-      return await moveQueued(env, Number(mv[1]), body.dir === "down" ? "down" : "up");
+      return await moveQueued(env, Number(mv[1]), body.dir === "down" ? "down" : "up", request);
     }
 
     // Post a specific queued item immediately (still respects the daily cap).
     const pn = pathname.match(/^\/api\/queue\/(\d+)\/post-now$/);
     if (pn && method === "POST") {
-      return await postQueuedNow(env, Number(pn[1]));
+      return await postQueuedNow(env, Number(pn[1]), request);
     }
 
     if (pathname === "/api/interval" && method === "POST") {
@@ -182,7 +186,7 @@ async function handleApi(request, env, ctx, url) {
       await env.DB.prepare("UPDATE settings SET interval_hours = ?1 WHERE id = 1")
         .bind(hours)
         .run();
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Display currency for cost estimates (X prices stay USD under the hood).
@@ -204,13 +208,13 @@ async function handleApi(request, env, ctx, url) {
       } catch (e) {
         console.error("fx refresh after currency change failed:", e);
       }
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Post the top of the queue right now (still respects the daily cap).
     if (pathname === "/api/post-now" && method === "POST") {
       const result = await postNext(env, { ignoreInterval: true });
-      return json({ ok: true, result, ...(await getState(env)) });
+      return json({ ok: true, result, ...(await getState(env, request)) });
     }
 
     // Post an arbitrary typed post immediately (the "NOW" / POST button), instead
@@ -218,26 +222,26 @@ async function handleApi(request, env, ctx, url) {
     // Body: { text, kind?: "lightning" } - kind is kept for history tracking only.
     if (pathname === "/api/post-text" && method === "POST") {
       const body = await request.json();
-      return await postTextNow(env, String(body.text || ""), body.kind);
+      return await postTextNow(env, String(body.text || ""), body.kind, request);
     }
 
     // ---- Review deck (Tinder-style triage before / instead of bulk import) ----
     if (pathname === "/api/review" && method === "GET") {
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Seed the deck. Body: { texts: string[], mode: "replace" | "append" }.
     // Empty lines are dropped; over-280 lines are kept (can't accept until edited).
     if (pathname === "/api/review" && method === "POST") {
       const body = await request.json();
-      return await seedReview(env, Array.isArray(body.texts) ? body.texts : [], body.mode === "append" ? "append" : "replace");
+      return await seedReview(env, Array.isArray(body.texts) ? body.texts : [], body.mode === "append" ? "append" : "replace", request);
     }
 
     // AI draft → Review deck. Body: { count?, mode?: "append"|"replace", topic? }.
     // Uses Workers AI (Mistral Small) + recent history/queue as voice samples.
     if (pathname === "/api/review/generate" && method === "POST") {
       const body = await request.json().catch(() => ({}));
-      return await generateReviewDrafts(env, body || {});
+      return await generateReviewDrafts(env, body || {}, request);
     }
 
     // Empty the whole deck (+ clear undo).
@@ -246,76 +250,76 @@ async function handleApi(request, env, ctx, url) {
         env.DB.prepare("DELETE FROM review_items"),
         env.DB.prepare("UPDATE review_undo SET action = NULL, text = NULL, queue_id = NULL, position = NULL, created_at = NULL WHERE id = 1"),
       ]);
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Undo the single most recent accept or reject.
     if (pathname === "/api/review/undo" && method === "POST") {
-      return await undoReview(env);
+      return await undoReview(env, request);
     }
 
     const revItem = pathname.match(/^\/api\/review\/(\d+)$/);
     if (revItem && method === "PATCH") {
       const body = await request.json();
-      return await editReviewItem(env, Number(revItem[1]), String(body.text || ""));
+      return await editReviewItem(env, Number(revItem[1]), String(body.text || ""), request);
     }
     if (revItem && method === "DELETE") {
       await env.DB.prepare("DELETE FROM review_items WHERE id = ?1").bind(Number(revItem[1])).run();
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     const revAccept = pathname.match(/^\/api\/review\/(\d+)\/accept$/);
     if (revAccept && method === "POST") {
       const body = await request.json().catch(() => ({}));
       const override = body && body.text != null ? String(body.text) : null;
-      return await acceptReviewItem(env, Number(revAccept[1]), override);
+      return await acceptReviewItem(env, Number(revAccept[1]), override, request);
     }
 
     const revReject = pathname.match(/^\/api\/review\/(\d+)\/reject$/);
     if (revReject && method === "POST") {
-      return await rejectReviewItem(env, Number(revReject[1]));
+      return await rejectReviewItem(env, Number(revReject[1]), request);
     }
 
     // ---- Sparks (vault): feeling-first drafts, separate from the queue factory ----
     if (pathname === "/api/sparks" && method === "GET") {
       await ensureSparkSchema(env);
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     // Save a lightning draft. Body: { text, cool_minutes? } — cool_minutes > 0
     // sets status cooling until now + minutes; otherwise draft.
     if (pathname === "/api/sparks" && method === "POST") {
       const body = await request.json().catch(() => ({}));
-      return await createSpark(env, body || {});
+      return await createSpark(env, body || {}, request);
     }
 
     // Live writing coach (Mistral). Body: { text }. Not for virality — honesty/specificity.
     if (pathname === "/api/spark/coach" && method === "POST") {
       const body = await request.json().catch(() => ({}));
-      return await coachSpark(env, body || {});
+      return await coachSpark(env, body || {}, request);
     }
 
     const sparkItem = pathname.match(/^\/api\/sparks\/(\d+)$/);
     if (sparkItem && method === "PATCH") {
       const body = await request.json().catch(() => ({}));
-      return await updateSpark(env, Number(sparkItem[1]), body || {});
+      return await updateSpark(env, Number(sparkItem[1]), body || {}, request);
     }
     if (sparkItem && method === "DELETE") {
       await ensureSparkSchema(env);
       await env.DB.prepare("DELETE FROM sparks WHERE id = ?1")
         .bind(Number(sparkItem[1]))
         .run();
-      return json({ ok: true, ...(await getState(env)) });
+      return json({ ok: true, ...(await getState(env, request)) });
     }
 
     const sparkQueue = pathname.match(/^\/api\/sparks\/(\d+)\/queue$/);
     if (sparkQueue && method === "POST") {
-      return await queueSpark(env, Number(sparkQueue[1]));
+      return await queueSpark(env, Number(sparkQueue[1]), request);
     }
 
     const sparkPost = pathname.match(/^\/api\/sparks\/(\d+)\/post$/);
     if (sparkPost && method === "POST") {
-      return await postSparkNow(env, Number(sparkPost[1]));
+      return await postSparkNow(env, Number(sparkPost[1]), request);
     }
 
     return json({ ok: false, error: "Not found." }, 404);
@@ -336,7 +340,7 @@ async function ensureQueueKindColumn(env) {
   }
 }
 
-async function addToQueue(env, text, kind) {
+async function addToQueue(env, text, kind, request = null) {
   text = text.trim();
   if (!text) return json({ ok: false, error: "Empty post." }, 400);
   if (text.length > MAX_TWEET_LEN) {
@@ -349,13 +353,13 @@ async function addToQueue(env, text, kind) {
   )
     .bind(text, Date.now(), k)
     .run();
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
 // Post a specific queued item right now, bypassing queue order and the interval
 // (still respects the daily cap). On success it becomes a 'posted' row and resets
 // the interval clock; on failure it stays queued so nothing is lost.
-async function postQueuedNow(env, id) {
+async function postQueuedNow(env, id, request = null) {
   const item = await env.DB.prepare(
     "SELECT id, text FROM queue WHERE id = ?1 AND status = 'queued'"
   ).bind(id).first();
@@ -370,7 +374,7 @@ async function postQueuedNow(env, id) {
       "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL, cost_usd = ?3 WHERE id = ?4"
     ).bind(now, tweetId, postCostUsd(item.text), item.id).run();
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1").bind(now).run();
-    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env)) });
+    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env, request)) });
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
   }
@@ -378,7 +382,7 @@ async function postQueuedNow(env, id) {
 
 // Swap a queued post with its adjacent neighbor (by created_at) to reorder it.
 // Ordering is by created_at ASC, so "up" = earlier timestamp, "down" = later.
-async function moveQueued(env, id, dir) {
+async function moveQueued(env, id, dir, request = null) {
   const item = await env.DB.prepare(
     "SELECT id, created_at FROM queue WHERE id = ?1 AND status = 'queued'"
   ).bind(id).first();
@@ -397,7 +401,7 @@ async function moveQueued(env, id, dir) {
       env.DB.prepare("UPDATE queue SET created_at = ?1 WHERE id = ?2").bind(item.created_at, neighbor.id),
     ]);
   }
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
 // Randomise the order of the entire queue. Ordering is defined purely by
@@ -405,7 +409,7 @@ async function moveQueued(env, id, dir) {
 // the queued rows' EXISTING created_at values across the rows with a
 // Fisher-Yates shuffle. Reusing the same timestamp multiset keeps ordering
 // stable relative to posted rows and never invents colliding values.
-async function shuffleQueue(env) {
+async function shuffleQueue(env, request = null) {
   const rows = (
     await env.DB.prepare(
       "SELECT id, created_at FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
@@ -423,13 +427,13 @@ async function shuffleQueue(env) {
       )
     );
   }
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
 // Bulk insert. Validates each entry; too-long / empty ones are skipped and
 // counted so the UI can report them. created_at is spaced by 1ms per item so
 // paste order is preserved in the queue.
-async function addBulk(env, texts) {
+async function addBulk(env, texts, request = null) {
   const clean = [];
   let skippedEmpty = 0;
   let skippedLong = 0;
@@ -453,7 +457,7 @@ async function addBulk(env, texts) {
     added: clean.length,
     skippedEmpty,
     skippedLong,
-    ...(await getState(env)),
+    ...(await getState(env, request)),
   });
 }
 
@@ -461,7 +465,7 @@ async function addBulk(env, texts) {
 // success it's recorded as a 'posted' row (so it shows in history and counts
 // toward the 24h cap) and resets the interval clock so the queue keeps spacing.
 // kind "lightning" is stored for personal tracking (⚡ badge in history).
-async function postTextNow(env, text, kind) {
+async function postTextNow(env, text, kind, request = null) {
   text = text.trim();
   if (!text) return json({ ok: false, error: "Empty post." }, 400);
   if (text.length > MAX_TWEET_LEN) {
@@ -483,7 +487,7 @@ async function postTextNow(env, text, kind) {
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
       .run();
-    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env)) });
+    return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env, request)) });
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
   }
@@ -492,7 +496,7 @@ async function postTextNow(env, text, kind) {
 // Everything the UI needs in one call: the queued list (oldest first = next to
 // post), recent history, current interval, 24h usage, and when the next post is
 // eligible to go out.
-async function getState(env) {
+async function getState(env, request = null) {
   // Ensure review tables + optional kind column exist.
   await ensureReviewSchema(env);
   await ensureQueueKindColumn(env);
@@ -557,7 +561,7 @@ async function getState(env) {
   const displayCurrency = normalizeCurrency(settings.display_currency);
   const fxRate = resolveFxRate(settings, displayCurrency);
 
-  return {
+  const result = {
     interval_hours: settings.interval_hours,
     last_posted_at: settings.last_posted_at,
     next_eligible_at: nextEligibleAt,
@@ -580,6 +584,12 @@ async function getState(env) {
     review,
     demo: isDemo(env),
   };
+  // Per-IP demo AI usage only when we have the request (omit otherwise so
+  // clients can keep their last known remaining counts).
+  if (isDemo(env) && request) {
+    result.demo_ai = await getDemoAiUsage(env, request);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -643,7 +653,7 @@ async function getSparkState(env) {
   }
 }
 
-async function createSpark(env, body) {
+async function createSpark(env, body, request = null) {
   await ensureSparkSchema(env);
   let text = String(body.text || "").trim();
   if (!text) return json({ ok: false, error: "Empty spark." }, 400);
@@ -667,11 +677,11 @@ async function createSpark(env, body) {
     spark_id: id,
     status,
     cool_until: coolUntil,
-    ...(await getState(env)),
+    ...(await getState(env, request)),
   });
 }
 
-async function updateSpark(env, id, body) {
+async function updateSpark(env, id, body, request = null) {
   await ensureSparkSchema(env);
   const row = await env.DB.prepare(
     "SELECT id, status FROM sparks WHERE id = ?1"
@@ -735,7 +745,7 @@ async function updateSpark(env, id, body) {
     .bind(...binds)
     .run();
 
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
 function sparkShipText(text) {
@@ -749,7 +759,7 @@ function sparkShipText(text) {
   return { text };
 }
 
-async function queueSpark(env, id) {
+async function queueSpark(env, id, request = null) {
   await ensureSparkSchema(env);
   const row = await env.DB.prepare(
     "SELECT id, text, status, cool_until FROM sparks WHERE id = ?1"
@@ -792,10 +802,10 @@ async function queueSpark(env, id) {
     .bind(qrow ? qrow.id : null, now, id)
     .run();
 
-  return json({ ok: true, queued: true, ...(await getState(env)) });
+  return json({ ok: true, queued: true, ...(await getState(env, request)) });
 }
 
-async function postSparkNow(env, id) {
+async function postSparkNow(env, id, request = null) {
   await ensureSparkSchema(env);
   const row = await env.DB.prepare(
     "SELECT id, text, status, cool_until FROM sparks WHERE id = ?1"
@@ -842,7 +852,7 @@ async function postSparkNow(env, id) {
     return json({
       ok: true,
       result: { posted: true, tweet_id: tweetId },
-      ...(await getState(env)),
+      ...(await getState(env, request)),
     });
   } catch (err) {
     return json({ ok: false, error: String(err && err.message ? err.message : err) }, 502);
@@ -850,7 +860,7 @@ async function postSparkNow(env, id) {
 }
 
 // Writing coach: X-native craft. Question + cuts always from AI.
-async function coachSpark(env, body) {
+async function coachSpark(env, body, request) {
   if (!env.AI) {
     return json(
       {
@@ -868,6 +878,24 @@ async function coachSpark(env, body) {
 
   // Cheap lint only (flags / rough scores). Never used as the question source.
   const lint = localCoachLint(text);
+
+  // Demo: 5 coach calls per IP / 24h (server-side). Count only successful runs.
+  let demoAi = null;
+  if (isDemo(env) && request) {
+    demoAi = await getDemoAiUsage(env, request);
+    if (demoAi.coach_remaining <= 0) {
+      return json(
+        {
+          ok: false,
+          error:
+            "Demo coach limit reached (5 per day for your network). Self-host xqueue for unlimited coach.",
+          lint,
+          demo_ai: demoAi,
+        },
+        429
+      );
+    }
+  }
 
   const system = [
     "You are an elite X (Twitter) writing coach. You understand how the platform actually works in 2025-2026: what people stop for, reply to, quote, and repost.",
@@ -1033,10 +1061,15 @@ async function coachSpark(env, body) {
       .slice(0, 2);
   }
 
+  if (isDemo(env) && request) {
+    demoAi = await recordDemoAiCall(env, request, "coach");
+  }
+
   return json({
     ok: true,
     coach: { ...parsed, source: "ai" },
     model: AI_MODEL,
+    demo_ai: demoAi,
   });
 }
 
@@ -1296,7 +1329,7 @@ async function getReviewState(env) {
 
 // Draft N posts with Workers AI, using recent posted + queued text as voice samples.
 // Lands in the Review deck (append by default) so you can swipe/edit before queueing.
-async function generateReviewDrafts(env, body) {
+async function generateReviewDrafts(env, body, request) {
   if (!env.AI) {
     return json(
       { ok: false, error: "Workers AI is not bound. Redeploy with [ai] binding = \"AI\" in wrangler.toml." },
@@ -1304,9 +1337,27 @@ async function generateReviewDrafts(env, body) {
     );
   }
 
+  // Demo: small generate cap per IP / 24h (separate from coach's 5).
+  if (isDemo(env) && request) {
+    const demoAi = await getDemoAiUsage(env, request);
+    if (demoAi.generate_remaining <= 0) {
+      return json(
+        {
+          ok: false,
+          error:
+            "Demo AI generate limit reached (2 per day for your network). Self-host for unlimited generate.",
+          demo_ai: demoAi,
+        },
+        429
+      );
+    }
+  }
+
   let count = Number(body.count);
   if (!Number.isFinite(count)) count = AI_GEN_DEFAULT;
   count = Math.max(AI_GEN_MIN, Math.min(AI_GEN_MAX, Math.round(count)));
+  // Demo: don't let one click generate 25 posts.
+  if (isDemo(env)) count = Math.min(count, 5);
   const mode = body.mode === "replace" ? "replace" : "append";
   const topic = String(body.topic || "").trim().slice(0, 400);
 
@@ -1406,14 +1457,19 @@ async function generateReviewDrafts(env, body) {
   }
 
   // Reuse seed path; surface generated list for debugging/toasts.
-  const seeded = await seedReview(env, posts, mode);
+  const seeded = await seedReview(env, posts, mode, request);
   // seedReview returns a Response — re-wrap with generate metadata.
   const data = await seeded.json();
+  let demoAi = null;
+  if (isDemo(env) && request) {
+    demoAi = await recordDemoAiCall(env, request, "generate");
+  }
   return json({
     ...data,
     generated: posts.length,
     model: AI_MODEL,
     topic: topic || null,
+    demo_ai: demoAi,
   });
 }
 
@@ -1588,7 +1644,7 @@ function stripTrailingPeriod(text) {
   return s.slice(0, -1).trimEnd();
 }
 
-async function seedReview(env, texts, mode) {
+async function seedReview(env, texts, mode, request = null) {
   const clean = [];
   let skippedEmpty = 0;
   let overCount = 0;
@@ -1639,11 +1695,11 @@ async function seedReview(env, texts, mode) {
     added: clean.length,
     skippedEmpty,
     overCount,
-    ...(await getState(env)),
+    ...(await getState(env, request)),
   });
 }
 
-async function editReviewItem(env, id, text) {
+async function editReviewItem(env, id, text, request = null) {
   // Deck may hold over-280 drafts (import or mid-edit). Empty is not allowed.
   text = String(text == null ? "" : text);
   // Preserve intentional whitespace only at ends via trim for emptiness check,
@@ -1658,10 +1714,10 @@ async function editReviewItem(env, id, text) {
   if (!res.meta || res.meta.changes === 0) {
     return json({ ok: false, error: "Review item not found." }, 404);
   }
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
-async function acceptReviewItem(env, id, overrideText) {
+async function acceptReviewItem(env, id, overrideText, request = null) {
   const item = await env.DB.prepare(
     "SELECT id, text, position FROM review_items WHERE id = ?1"
   )
@@ -1714,10 +1770,10 @@ async function acceptReviewItem(env, id, overrideText) {
     ).bind("accept", text, queueId != null ? queueId : null, item.position, now),
   ]);
 
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
-async function rejectReviewItem(env, id) {
+async function rejectReviewItem(env, id, request = null) {
   const item = await env.DB.prepare(
     "SELECT id, text, position FROM review_items WHERE id = ?1"
   )
@@ -1733,10 +1789,10 @@ async function rejectReviewItem(env, id) {
     ).bind("reject", item.text, item.position, now),
   ]);
 
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
-async function undoReview(env) {
+async function undoReview(env, request = null) {
   const undo = await env.DB.prepare(
     "SELECT action, text, queue_id, position, created_at FROM review_undo WHERE id = 1"
   ).first();
@@ -1785,7 +1841,7 @@ async function undoReview(env) {
     ),
   ]);
 
-  return json({ ok: true, ...(await getState(env)) });
+  return json({ ok: true, ...(await getState(env, request)) });
 }
 
 // ---------------------------------------------------------------------------
@@ -1800,6 +1856,16 @@ async function runScheduler(env) {
       .run();
   } catch (e) {
     console.error("auth_attempts cleanup failed:", e);
+  }
+  try {
+    await env.DB.prepare("DELETE FROM demo_ai_calls WHERE ts < ?1")
+      .bind(Date.now() - DEMO_AI_WINDOW_MS)
+      .run();
+  } catch (e) {
+    // Table may not exist yet on older DBs until first AI call.
+    if (!/no such table/i.test(String(e && e.message ? e.message : e))) {
+      console.error("demo_ai_calls cleanup failed:", e);
+    }
   }
   // Keep the USD->AUD rate fresh (isolated so an FX outage never blocks posting).
   try {
@@ -1949,6 +2015,76 @@ function resolveFxRate(settings, currency) {
 function isDemo(env) {
   const v = env && env.DEMO;
   return v === "1" || v === "true" || v === true;
+}
+
+function clientIp(request) {
+  if (!request || !request.headers) return "unknown";
+  return request.headers.get("CF-Connecting-IP") || "unknown";
+}
+
+let demoAiSchemaReady = false;
+
+async function ensureDemoAiSchema(env) {
+  if (demoAiSchemaReady) return;
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS demo_ai_calls (" +
+      "ip TEXT NOT NULL, " +
+      "kind TEXT NOT NULL, " +
+      "ts INTEGER NOT NULL)"
+  ).run();
+  try {
+    await env.DB.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_demo_ai_ip_kind_ts ON demo_ai_calls (ip, kind, ts)"
+    ).run();
+  } catch (_) {
+    /* exists */
+  }
+  demoAiSchemaReady = true;
+}
+
+// request may be null when called from getState without a request context —
+// then we only return limits (used=0). Prefer passing request for real counts.
+async function getDemoAiUsage(env, request) {
+  await ensureDemoAiSchema(env);
+  const ip = request ? clientIp(request) : null;
+  const since = Date.now() - DEMO_AI_WINDOW_MS;
+  let coachUsed = 0;
+  let generateUsed = 0;
+  if (ip) {
+    const coach = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM demo_ai_calls WHERE ip = ?1 AND kind = 'coach' AND ts > ?2"
+    )
+      .bind(ip, since)
+      .first();
+    const gen = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM demo_ai_calls WHERE ip = ?1 AND kind = 'generate' AND ts > ?2"
+    )
+      .bind(ip, since)
+      .first();
+    coachUsed = coach ? coach.n : 0;
+    generateUsed = gen ? gen.n : 0;
+  }
+  return {
+    coach_used: coachUsed,
+    coach_limit: DEMO_AI_COACH_LIMIT,
+    coach_remaining: Math.max(0, DEMO_AI_COACH_LIMIT - coachUsed),
+    generate_used: generateUsed,
+    generate_limit: DEMO_AI_GENERATE_LIMIT,
+    generate_remaining: Math.max(0, DEMO_AI_GENERATE_LIMIT - generateUsed),
+    window_hours: 24,
+  };
+}
+
+async function recordDemoAiCall(env, request, kind) {
+  await ensureDemoAiSchema(env);
+  const ip = clientIp(request);
+  const k = kind === "generate" ? "generate" : "coach";
+  await env.DB.prepare(
+    "INSERT INTO demo_ai_calls (ip, kind, ts) VALUES (?1, ?2, ?3)"
+  )
+    .bind(ip, k, Date.now())
+    .run();
+  return getDemoAiUsage(env, request);
 }
 
 // One-time sample queue for public demos so the UI isn't empty.
