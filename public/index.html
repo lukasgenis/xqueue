@@ -48,12 +48,14 @@
        would otherwise override the UA [hidden]{display:none} and leave elements
        stuck visible. This guards every hideable element (login, modal, lists). */
     [hidden] { display: none !important; }
+    html { overflow-x: hidden; }
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
       /* 16px base so text inputs never trigger iOS focus-zoom (they use font:inherit). */
       font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow-x: hidden;
     }
     /* Belt-and-suspenders: any focusable text field stays >=16px on iOS. */
     textarea, input, select { font-size: 16px; }
@@ -121,6 +123,28 @@
     /* After ready: demo never shows Lock. */
     html.ready.demo #lockBtn {
       display: none !important;
+    }
+    /* Phones: usage min-width + currency + Lock is wider than the viewport,
+       which clipped Lock and let the page rubber-band sideways. Keep the
+       chips on the logo row; drop usage onto the next line. */
+    @media (max-width: 520px) {
+      header {
+        flex-wrap: wrap;
+        gap: 8px 10px;
+      }
+      .header-right {
+        flex: 1 1 auto;
+        min-width: 0;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      header .usage {
+        order: 3;
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: 100%;
+      }
     }
 
     .composer {
