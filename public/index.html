@@ -213,15 +213,26 @@
     .picker-opt-desc {
       font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.35;
     }
-    /* Currency picker + Lock chip: identical pill footprint. */
-    .header-right .picker { gap: 6px; }
+    /* Currency picker + Lock chip: identical pill footprint.
+       WebKit clips <button> contents to border-radius, so a content-sized
+       currency chip (3-letter code + chevron) shoved the first letter into
+       the rounded cap — worst for GBP's G. Shared width keeps both chips
+       even and leaves the code off the curve. */
+    .header-right .picker { gap: 6px; flex: 0 0 auto; }
     .header-right .picker-btn,
     .header-right .lockbtn {
       box-sizing: border-box;
+      -webkit-appearance: none;
+      appearance: none;
+      overflow: visible;
+      flex: 0 0 4.75rem;
+      width: 4.75rem;
+      min-width: 4.75rem;
+      max-width: 4.75rem;
       height: 30px;
       min-height: 30px;
       max-height: 30px;
-      padding: 0 12px;
+      padding: 0 8px;
       font-size: 12px;
       font-weight: 500;
       line-height: 1;
@@ -229,13 +240,20 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 4px;
+    }
+    .header-right .picker-btn #currencyValue {
+      display: inline-block;
+      min-width: 3ch;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
     }
     .header-right .picker-btn .picker-chevron {
       font-size: 9px;
       line-height: 1;
       display: inline-flex;
       align-items: center;
+      flex: 0 0 auto;
     }
     .header-right .picker-menu { min-width: 180px; }
     .demo-banner {
@@ -1327,6 +1345,10 @@
       const t = document.getElementById("toast");
       const duration = opts.duration != null ? opts.duration : 2800;
       t.textContent = msg;
+      // Retrigger the pop-in when a new toast replaces one already on screen
+      // (rapid currency taps, stacked confirms).
+      t.classList.remove("show");
+      void t.offsetWidth;
       t.classList.add("show");
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
@@ -1416,6 +1438,16 @@
       JPY: { symbol: "¥", name: "Japanese yen" },
     };
     const COST_TEXT_USD = 0.015;
+    // Same fallbacks as the Worker — used for optimistic cost paint before FX returns.
+    const FALLBACK_FX = {
+      USD: 1,
+      EUR: 0.92,
+      GBP: 0.79,
+      AUD: 1.52,
+      CAD: 1.36,
+      NZD: 1.65,
+      JPY: 150,
+    };
     function displayCurrency() {
       return (state && state.display_currency) || "USD";
     }
@@ -1448,6 +1480,8 @@
     }
 
     let currencyBusy = false;
+    let currencyWanted = null; // latest pick while a request is in flight
+    let currencyConfirmed = null; // last value the server accepted
 
     function syncCurrencyPicker() {
       const cur = displayCurrency();
@@ -1479,44 +1513,62 @@
       });
     }
 
+    function paintCurrency(code, rate) {
+      if (!state) return;
+      const fx = code === "USD"
+        ? 1
+        : (typeof rate === "number" && rate > 0 ? rate : (FALLBACK_FX[code] || 1));
+      state = { ...state, display_currency: code, fx_rate: fx };
+      syncCurrencyPicker();
+      applyCurrencyToUi();
+    }
+
     async function setCurrency(code) {
       code = String(code || "").toUpperCase();
       closeCurrencyMenu();
       if (!code || !CURRENCY_META[code]) return;
-      if (code === displayCurrency() || currencyBusy) return;
+      if (currencyConfirmed == null) currencyConfirmed = displayCurrency();
+      // Same as the in-flight target (or what's already showing): nothing to do.
+      if (code === (currencyWanted || displayCurrency())) return;
+
+      const alreadyBusy = currencyBusy;
+      currencyWanted = code;
       currencyBusy = true;
-      // Optimistic UI so the label doesn't snap back while the request is in flight.
-      const prev = state ? { ...state } : null;
-      if (state) {
-        state = { ...state, display_currency: code };
-        // Use default FX until the server returns the live rate.
-        if (code === "USD") state.fx_rate = 1;
-        syncCurrencyPicker();
-        applyCurrencyToUi();
-      }
+      // Instant chip + costs + toast; persist last pick if several land at once.
+      paintCurrency(code, FALLBACK_FX[code]);
+      toast("Currency: " + code);
+      if (alreadyBusy) return;
+
       try {
-        const res = await api("/api/currency", {
-          method: "POST",
-          body: JSON.stringify({ currency: code }),
-        });
-        if (res && res.ok) {
-          state = res;
-          syncCurrencyPicker();
-          applyCurrencyToUi();
-          toast("Currency: " + code);
-        } else {
-          if (prev) state = prev;
-          syncCurrencyPicker();
-          applyCurrencyToUi();
-          toast((res && res.error) || "Couldn't change currency");
-        }
-      } catch (e) {
-        if (prev) state = prev;
-        syncCurrencyPicker();
-        applyCurrencyToUi();
-        // api() already shows login on 401; still surface other failures.
-        if (!e || e.message !== "unauthorized") {
-          toast("Couldn't change currency");
+        while (currencyWanted) {
+          const sending = currencyWanted;
+          try {
+            const res = await api("/api/currency", {
+              method: "POST",
+              body: JSON.stringify({ currency: sending }),
+            });
+            if (currencyWanted !== sending) continue; // a newer tap won
+            if (res && res.ok) {
+              currencyConfirmed = sending;
+              adoptState(res);
+              syncCurrencyPicker();
+              applyCurrencyToUi();
+            } else {
+              paintCurrency(currencyConfirmed, FALLBACK_FX[currencyConfirmed]);
+              toast((res && res.error) || "Couldn't change currency");
+            }
+          } catch (e) {
+            if (currencyWanted !== sending) continue;
+            paintCurrency(currencyConfirmed, FALLBACK_FX[currencyConfirmed]);
+            // api() already shows login on 401; still surface other failures.
+            if (!e || e.message !== "unauthorized") {
+              toast("Couldn't change currency");
+            }
+          }
+          if (currencyWanted === sending) {
+            currencyWanted = null;
+            break;
+          }
         }
       } finally {
         currencyBusy = false;

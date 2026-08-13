@@ -199,16 +199,27 @@ async function handleApi(request, env, ctx, url) {
         return json({ ok: false, error: "Invalid currency." }, 400);
       }
       await ensureSettingsSchema(env);
-      await env.DB.prepare(
-        "UPDATE settings SET display_currency = ?1 WHERE id = 1"
-      )
-        .bind(currency)
-        .run();
-      // Force a fresh FX rate for the new currency (isolated failure is fine).
-      try {
-        await refreshFx(env, { force: true });
-      } catch (e) {
-        console.error("fx refresh after currency change failed:", e);
+      // Persist immediately with a fallback rate so the UI isn't blocked on
+      // frankfurter. Live FX is refreshed in the background (or inline if
+      // waitUntil isn't available).
+      const fallback = DEFAULT_FX[currency] || 1;
+      if (currency === "USD") {
+        await env.DB.prepare(
+          "UPDATE settings SET display_currency = 'USD', fx_rate = 1, fx_updated_at = ?1 WHERE id = 1"
+        )
+          .bind(Date.now())
+          .run();
+      } else {
+        await env.DB.prepare(
+          "UPDATE settings SET display_currency = ?1, fx_rate = ?2, fx_updated_at = 0 WHERE id = 1"
+        )
+          .bind(currency, fallback)
+          .run();
+        const refresh = refreshFx(env, { force: true }).catch((e) => {
+          console.error("fx refresh after currency change failed:", e);
+        });
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refresh);
+        else await refresh;
       }
       return json({ ok: true, ...(await getState(env, request)) });
     }
