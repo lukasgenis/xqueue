@@ -124,27 +124,39 @@
     html.ready.demo #lockBtn {
       display: none !important;
     }
-    /* Phones: usage min-width + currency + Lock is wider than the viewport,
-       which clipped Lock and let the page rubber-band sideways. Keep the
-       chips on the logo row; drop usage onto the next line. */
+    /* Phones: one row — logo, compact 12/17, currency, Lock.
+       Full "N/N posted (24h)" is too wide; show data-count instead. */
     @media (max-width: 520px) {
+      .wrap { padding-left: 12px; padding-right: 12px; }
       header {
-        flex-wrap: wrap;
-        gap: 8px 10px;
+        flex-wrap: nowrap;
+        gap: 8px;
       }
+      header h1 { font-size: 18px; }
       .header-right {
         flex: 1 1 auto;
         min-width: 0;
         justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 8px;
+        flex-wrap: nowrap;
+        gap: 6px;
       }
       header .usage {
-        order: 3;
-        flex: 1 1 100%;
+        flex: 1 1 auto;
         min-width: 0;
-        max-width: 100%;
+        max-width: none;
+        font-size: 0;
+        line-height: 30px;
+        text-align: right;
+        white-space: nowrap;
       }
+      header .usage::before {
+        content: attr(data-count);
+        font-size: 12px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      html.booting header .usage:empty::after { content: none; }
+      html.booting header .usage:not([data-count])::before { content: "–/–"; }
     }
 
     .composer {
@@ -842,7 +854,7 @@
     <header>
       <h1 class="logo logo-home" id="homeLogo" title="Refresh" role="button" tabindex="0">xqueue</h1>
       <div class="header-right">
-        <span class="usage" id="usage"></span>
+        <span class="usage" id="usage" data-count="–/–"></span>
         <div class="picker" id="currencyWrap">
           <button type="button" class="picker-btn" id="currencyBtn"
                   aria-haspopup="listbox" aria-expanded="false" aria-controls="currencyMenu"
@@ -1053,7 +1065,11 @@
           if (!c || typeof c !== "object") return;
           var root = document.documentElement;
           var u = document.getElementById("usage");
-          if (u && c.usage) u.textContent = String(c.usage);
+          if (u && c.usage) {
+            u.textContent = String(c.usage);
+            var count = c.usage_count || (String(c.usage).match(/^\d+\/\d+/) || [])[0];
+            if (count) u.setAttribute("data-count", count);
+          }
           var cur = document.getElementById("currencyValue");
           if (cur && c.currency) cur.textContent = String(c.currency);
           var lock = document.getElementById("lockBtn");
@@ -1272,6 +1288,7 @@
               : 0;
         const payload = {
           usage: usageEl ? String(usageEl.textContent || "").trim() : "",
+          usage_count: usageEl ? String(usageEl.getAttribute("data-count") || "").trim() : "",
           currency: curEl ? String(curEl.textContent || "USD").trim() : "USD",
           demo: !!state.demo,
           interval_hours: state.interval_hours != null ? state.interval_hours : null,
@@ -2402,7 +2419,8 @@
 
     function updateUsageLine() {
       if (!state) return;
-      const postedLine = `${state.count24h}/${state.daily_cap} posted (24h)`;
+      const countPart = `${state.count24h}/${state.daily_cap}`;
+      const postedLine = `${countPart} posted (24h)`;
       const ai = state.ai;
       let aiLine = "";
       if (ai && ai.neurons_limit) {
@@ -2413,6 +2431,7 @@
       const usageEl = document.getElementById("usage");
       if (!usageEl) return;
       usageEl.textContent = postedLine + aiLine;
+      usageEl.setAttribute("data-count", countPart);
       usageEl.title = ai
         ? `Workers AI Neurons today (UTC ${ai.day || ""}): ${ai.neurons_used}/${ai.neurons_limit} used · ${ai.neurons_remaining} left · ${ai.calls || 0} calls via xqueue. Free pool is 10k/day account-wide; this counter only tracks this app.`
         : postedLine;
