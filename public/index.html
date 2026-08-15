@@ -2,7 +2,7 @@
 <html lang="en" translate="no" class="booting">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
   <!-- Reinforce that this is English so Chrome's content detector doesn't
        misfire (it guesses French on this label-heavy, low-prose UI) and stop
@@ -57,6 +57,16 @@
       font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow-x: hidden;
     }
+    /* Review cards: pin the page so iOS can't rubber-band the queue behind
+       the overlay. overflow:hidden on body is not enough on Safari. */
+    html.swipe-open,
+    html.swipe-open body {
+      overflow: hidden !important;
+      overscroll-behavior: none;
+      height: 100%;
+      height: 100dvh;
+    }
+
     /* Belt-and-suspenders: any focusable text field stays >=16px on iOS. */
     textarea, input, select { font-size: 16px; }
     .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 80px; }
@@ -649,7 +659,17 @@
     .review-swipe {
       position: fixed; inset: 0; z-index: 40;
       display: flex; flex-direction: column;
-      background: var(--bg); padding: 16px 16px 24px;
+      background: var(--bg);
+      padding: 16px 16px 24px;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+      overscroll-behavior: none;
     }
     .review-swipe[hidden] { display: none; }
     .swipe-top {
@@ -697,6 +717,7 @@
       font-size: 18px; line-height: 1.45; min-height: 120px;
       cursor: pointer; -webkit-overflow-scrolling: touch;
       touch-action: pan-y; /* allow reading long posts by scrolling text */
+      overscroll-behavior: contain; /* don't chain-scroll the page at the ends */
     }
     .swipe-card .card-edit {
       flex: 1; width: 100%; min-height: 140px; resize: vertical;
@@ -727,7 +748,23 @@
     .swipe-actions .acc { background: var(--ok); border-color: var(--ok); color: #0e1113; font-weight: 700; }
     .swipe-actions .acc:hover:not(:disabled) { filter: brightness(1.08); }
     .swipe-actions .acc:disabled { opacity: .35; }
-    .swipe-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
+    .swipe-hint {
+      flex-shrink: 0;
+      text-align: center; font-size: 12px; color: var(--muted); margin: 12px 0 0;
+    }
+    @media (max-width: 520px) {
+      .review-swipe {
+        padding: 12px 12px 16px;
+        padding-top: max(12px, env(safe-area-inset-top));
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+      }
+      .swipe-card .card-text { min-height: 0; }
+      .swipe-actions { margin-top: 12px; }
+      .swipe-hint { margin-top: 8px; }
+    }
+    @media (max-height: 560px) {
+      .swipe-hint { display: none; }
+    }
     .swipe-empty {
       text-align: center; color: var(--muted); padding: 40px 16px;
     }
@@ -2752,6 +2789,33 @@
       renderReviewDeckList();
     }
 
+    function lockSwipeScroll() {
+      // iOS ignores overflow:hidden on body and will still rubber-band the
+      // queue page under the overlay. Pin the document at the current offset.
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      document.body.dataset.swipeScrollY = String(y);
+      document.documentElement.classList.add("swipe-open");
+      document.body.style.position = "fixed";
+      document.body.style.top = "-" + y + "px";
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+      document.body.style.overflow = "hidden";
+    }
+
+    function unlockSwipeScroll() {
+      const y = Number(document.body.dataset.swipeScrollY || 0);
+      document.documentElement.classList.remove("swipe-open");
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.width = "";
+      document.body.style.overflow = "";
+      delete document.body.dataset.swipeScrollY;
+      window.scrollTo(0, y);
+    }
+
     function openSwipeMode() {
       swipeMode = true;
       swipeEditing = false;
@@ -2762,7 +2826,7 @@
       document.getElementById("importPanel").hidden = true;
       document.getElementById("reviewPanel").hidden = true;
       document.getElementById("reviewSwipe").hidden = false;
-      document.body.style.overflow = "hidden";
+      lockSwipeScroll();
       renderSwipeCard();
     }
 
@@ -2785,7 +2849,7 @@
       swipeBusy = false;
       swipeEnterBelow = false;
       document.getElementById("reviewSwipe").hidden = true;
-      document.body.style.overflow = "";
+      unlockSwipeScroll();
       render();
       if (openPanel) openReviewPanel();
       if (pendingSave) {
@@ -3553,10 +3617,15 @@
           // Colour cue only once well past the commit threshold
           card.classList.toggle("flash-ok", swipePointer.dx > FLASH_PX);
           card.classList.toggle("flash-no", swipePointer.dx < -FLASH_PX);
-        } else if (swipePointer.axis === "y" && swipePointer.scrollEl) {
+        } else if (swipePointer.axis === "y") {
+          // Always eat the vertical gesture so iOS can't scroll the page
+          // behind the overlay. Only the card text may move, and only if
+          // it actually overflows.
           if (e.cancelable) e.preventDefault();
-          const dy = p.clientY - swipePointer.lastY;
-          swipePointer.scrollEl.scrollTop -= dy;
+          if (swipePointer.scrollEl) {
+            const dy = p.clientY - swipePointer.lastY;
+            swipePointer.scrollEl.scrollTop -= dy;
+          }
           swipePointer.lastY = p.clientY;
         }
       }
@@ -3619,6 +3688,16 @@
         card.addEventListener("touchcancel", onEnd);
       }
     })();
+
+    // Last line of defence: even with overflow:hidden + position:fixed, iOS
+    // will still scroll the document if a touchmove isn't cancelled. The card
+    // already scrolls long posts itself; only the edit textarea needs native
+    // touch scrolling.
+    document.addEventListener("touchmove", (e) => {
+      if (!swipeMode) return;
+      if (e.target && e.target.closest && e.target.closest("textarea")) return;
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false, capture: true });
 
     // ---- Logo hard refresh + lock ----
     (function initHomeLogo() {
