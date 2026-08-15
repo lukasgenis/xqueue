@@ -69,12 +69,24 @@
 
     /* Belt-and-suspenders: any focusable text field stays >=16px on iOS. */
     textarea, input, select { font-size: 16px; }
-    .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 80px; }
+    .wrap {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 24px 16px 80px;
+      /* viewport-fit=cover + black-translucent PWA status bar: keep the
+         header (logo / currency / lock) below the notch, not under it. */
+      padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+      padding-left: calc(16px + env(safe-area-inset-left, 0px));
+      padding-right: calc(16px + env(safe-area-inset-right, 0px));
+    }
 
     .login-overlay {
       position: fixed; inset: 0; z-index: 50;
       display: flex; align-items: center; justify-content: center;
       background: var(--bg); padding: 24px;
+      padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     }
     /* The display:flex above would otherwise override the [hidden] attribute,
        leaving the overlay stuck on screen after a successful unlock. */
@@ -137,7 +149,10 @@
     /* Phones: one row — logo, compact 12/17, currency, Lock.
        Full "N/N posted (24h)" is too wide; show data-count instead. */
     @media (max-width: 520px) {
-      .wrap { padding-left: 12px; padding-right: 12px; }
+      .wrap {
+        padding-left: calc(12px + env(safe-area-inset-left, 0px));
+        padding-right: calc(12px + env(safe-area-inset-right, 0px));
+      }
       header {
         flex-wrap: nowrap;
         gap: 8px;
@@ -837,7 +852,7 @@
     .load-more:hover { border-color: var(--accent); color: var(--accent); }
     a { color: var(--accent); }
     .toast {
-      position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(6px);
+      position: fixed; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%) translateY(6px);
       max-width: min(320px, calc(100vw - 32px));
       background: var(--panel); border: 1px solid var(--accent-dim);
       box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
@@ -853,6 +868,8 @@
       position: fixed; inset: 0; z-index: 60;
       display: flex; align-items: center; justify-content: center;
       background: rgba(0, 0, 0, 0.55); padding: 24px;
+      padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     }
     .modal-overlay[hidden] { display: none; } /* author display:flex would beat [hidden] otherwise */
     .modal-box {
