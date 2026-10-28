@@ -57,8 +57,9 @@ features past the daily free pool.
 - **Photos** — up to 4 per post from the composer, any queued post, or a draft
   (iPhone photo library / camera, paste, drag and drop). Resized in the browser
   before upload; optional alt text per photo
-- **Drafts** — a tab of suggested posts (e.g. pushed in by a stats dashboard)
-  to check, edit, then Queue / Post now / Dismiss. `POST /api/drafts`
+- **Drafts** — a tab of suggested posts (e.g. pushed in by a stats dashboard),
+  with their images, laid out like the queue: ＋ queue, ➤ post now, ✎ edit,
+  × dismiss (tap a draft on a phone to show them). `POST /api/drafts`
 - **Cost estimates** — plain-text unit price (**$0.015**, photos included),
   **+$0.005 per photo with alt text**, shown in your display currency (up to 3
   decimals so it is not rounded to $0.02)
@@ -281,7 +282,7 @@ no secret) leave the API open.
 | POST | `/api/devices/revoke` · `/label` · `/revoke-others` | Sign out · rename · sign out the rest |
 | POST | `/api/media` | Upload a photo (multipart `file`, `thumb?`, `width`, `height`) |
 | GET · PATCH | `/api/media/:id` | Photo (`?v=thumb`) · set alt text `{alt}` |
-| POST | `/api/drafts` | Add drafts `{drafts:[{text, note?, source?, key?, images?:[{data, mime, alt?}]}]}` |
+| POST | `/api/drafts` | Add drafts `{drafts:[{text, note?, source?, key?, images?:[{data (base64), mime, alt?, width?, height?}]}]}`; up to 4 images, 1.75 MB each |
 | PATCH · DELETE | `/api/drafts/:id` | Edit `{text, media?}` · dismiss |
 | POST | `/api/drafts/:id/queue` · `/post` | Queue it · post it now |
 | POST | `/api/queue` | Add one post `{text, kind?, media?}` |
