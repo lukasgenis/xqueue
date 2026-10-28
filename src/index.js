@@ -2197,6 +2197,11 @@ async function runScheduler(env) {
     }
   }
   try {
+    await exportOwnPostsOnce(env);
+  } catch (e) {
+    console.error("own-post export failed:", e);
+  }
+  try {
     await cleanupOrphanMedia(env);
   } catch (e) {
     console.error("media cleanup failed:", e);
@@ -2830,6 +2835,88 @@ async function uploadMediaToX(env, id) {
   return String(mediaId);
 }
 
+// TEMPORARY (2026-10-28): one-off export of Lukas's own posts + metrics into D1
+// (`x_archive`) so the drafter can learn his voice and what lands. Runs from the
+// cron until X has no more pages, then never again (`x_archive_state.done`).
+// Owned reads, ~$0.001 per post; no expansions (replied-to posts bill as other
+// people's reads). Remove this function, its cron call and the two tables after.
+async function exportOwnPostsOnce(env) {
+  if (isDemo(env) || !env.X_API_KEY) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS x_archive (id TEXT PRIMARY KEY, created_at TEXT, text TEXT, " +
+        "reply_to TEXT, refs TEXT, has_media INTEGER, metrics TEXT)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS x_archive_state (id INTEGER PRIMARY KEY CHECK (id = 1), " +
+        "user_id TEXT, next_token TEXT, pages INTEGER DEFAULT 0, done INTEGER DEFAULT 0, error TEXT, user_json TEXT)"
+    ),
+    env.DB.prepare("INSERT OR IGNORE INTO x_archive_state (id) VALUES (1)"),
+  ]);
+  let st = await env.DB.prepare("SELECT * FROM x_archive_state WHERE id = 1").first();
+  if (st.done) return;
+  const xGet = async (base, query) => {
+    const qs = new URLSearchParams(query).toString();
+    const res = await fetch(qs ? `${base}?${qs}` : base, {
+      headers: { Authorization: await buildOAuthHeader(env, "GET", base, query) },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`X ${res.status}: ${JSON.stringify(body).slice(0, 400)}`);
+    return body;
+  };
+  try {
+    if (!st.user_id) {
+      const me = await xGet("https://api.x.com/2/users/me", { "user.fields": "public_metrics,created_at" });
+      await env.DB.prepare("UPDATE x_archive_state SET user_id = ?1, user_json = ?2 WHERE id = 1")
+        .bind(me.data.id, JSON.stringify(me.data))
+        .run();
+      st = { ...st, user_id: me.data.id };
+    }
+    let token = st.next_token;
+    let pages = st.pages || 0;
+    for (let i = 0; i < 40; i++) {
+      const query = {
+        max_results: "100",
+        "tweet.fields": "created_at,public_metrics,conversation_id,in_reply_to_user_id,referenced_tweets,attachments,note_tweet",
+      };
+      if (token) query.pagination_token = token;
+      const page = await xGet(`https://api.x.com/2/users/${st.user_id}/tweets`, query);
+      const rows = page.data || [];
+      if (rows.length) {
+        await env.DB.batch(
+          rows.map((t) =>
+            env.DB.prepare(
+              "INSERT OR REPLACE INTO x_archive (id, created_at, text, reply_to, refs, has_media, metrics) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+            ).bind(
+              t.id,
+              t.created_at || null,
+              (t.note_tweet && t.note_tweet.text) || t.text || "",
+              t.in_reply_to_user_id || null,
+              t.referenced_tweets ? JSON.stringify(t.referenced_tweets) : null,
+              t.attachments && t.attachments.media_keys ? 1 : 0,
+              JSON.stringify(t.public_metrics || {})
+            )
+          )
+        );
+      }
+      pages++;
+      token = page.meta && page.meta.next_token;
+      await env.DB.prepare("UPDATE x_archive_state SET next_token = ?1, pages = ?2, done = ?3, error = NULL WHERE id = 1")
+        .bind(token || null, pages, token ? 0 : 1)
+        .run();
+      if (!token) return;
+    }
+  } catch (e) {
+    await env.DB.prepare("UPDATE x_archive_state SET error = ?1 WHERE id = 1")
+      .bind(String((e && e.message) || e).slice(0, 1000))
+      .run();
+    // Stop after a hard refusal instead of retrying (and paying) every 15 minutes.
+    if (/X 4(?!29)\d\d/.test(String(e && e.message))) {
+      await env.DB.prepare("UPDATE x_archive_state SET done = 1 WHERE id = 1").run();
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // X API — OAuth 1.0a user-context POST /2/tweets
 // ---------------------------------------------------------------------------
@@ -2868,7 +2955,7 @@ async function postTweet(env, text, mediaIds = []) {
 // Build the OAuth 1.0a Authorization header. For POST /2/tweets the JSON body
 // is NOT part of the signature base string — only the method, URL, and oauth_*
 // params are signed.
-async function buildOAuthHeader(env, method, urlStr) {
+async function buildOAuthHeader(env, method, urlStr, query = {}) {
   const oauth = {
     oauth_consumer_key: env.X_API_KEY,
     oauth_nonce: crypto.randomUUID().replace(/-/g, ""),
@@ -2878,9 +2965,12 @@ async function buildOAuthHeader(env, method, urlStr) {
     oauth_version: "1.0",
   };
 
-  const paramString = Object.keys(oauth)
+  // Query-string params (GET reads) are part of the signature; JSON and
+  // multipart bodies are not.
+  const signed = { ...query, ...oauth };
+  const paramString = Object.keys(signed)
     .sort()
-    .map((k) => `${pctEncode(k)}=${pctEncode(oauth[k])}`)
+    .map((k) => `${pctEncode(k)}=${pctEncode(signed[k])}`)
     .join("&");
 
   const baseString = [
