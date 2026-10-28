@@ -54,8 +54,14 @@ features past the daily free pool.
   landing composer
 - **Queue** — drains on your interval; reorder, edit, delete, shuffle
 - **Review** — Tinder-style triage for bulk dumps; optional AI draft into the deck
-- **Cost estimates** — plain-text unit price (**$0.015**), shown in your display
-  currency (up to 3 decimals so it is not rounded to $0.02)
+- **Photos** — up to 4 per post from the composer, any queued post, or a draft
+  (iPhone photo library / camera, paste, drag and drop). Resized in the browser
+  before upload; optional alt text per photo
+- **Drafts** — a tab of suggested posts (e.g. pushed in by a stats dashboard)
+  to check, edit, then Queue / Post now / Dismiss. `POST /api/drafts`
+- **Cost estimates** — plain-text unit price (**$0.015**, photos included),
+  **+$0.005 per photo with alt text**, shown in your display currency (up to 3
+  decimals so it is not rounded to $0.02)
 - **Currency toggle** — USD (default), EUR, GBP, AUD, CAD, NZD, JPY
 - **Passphrase login** — single shared secret + per-IP rate limit (production)
 
@@ -66,8 +72,11 @@ features past the daily free pool.
 - **Links are not priced into the number.** X charges much more for posts with
   URLs (~$0.20). The UI may flag `(link)` / “not in est.” but the dollar amount
   stays at the plain-text unit
-- Estimates do **not** track media, other product tiers, or your live X credit
-  balance. Treat them as a rough guide, not a ledger
+- Photos don't change the price: X doesn't bill media uploads, and a post with
+  images is still one "Post: Create". Alt text is a separate "Media Metadata"
+  call at **$0.005 per photo**, which the estimate includes
+- Estimates do **not** track other product tiers or your live X credit balance.
+  Treat them as a rough guide, not a ledger
 - Prefer **no links** in queued text if you care about cost
 
 ## Architecture

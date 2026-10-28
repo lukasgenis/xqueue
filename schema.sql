@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS queue (
   created_at INTEGER NOT NULL,                   -- epoch ms, added-to-queue time
   posted_at  INTEGER,                            -- epoch ms, when it actually posted
   cost_usd   REAL,                               -- USD charged at post time (X pay-per-use)
-  kind       TEXT                                -- null | 'lightning' (personal feeling-post tag)
+  kind       TEXT,                               -- null | 'lightning' (personal feeling-post tag)
+  media      TEXT                                -- JSON array of media ids (up to 4 images), or NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue (status, created_at);
@@ -88,3 +89,37 @@ CREATE TABLE IF NOT EXISTS sparks (
 CREATE INDEX IF NOT EXISTS idx_sparks_status ON sparks (status, updated_at);
 
 
+
+-- Images attached to posts/drafts. The full file lives here until the post goes
+-- out, then only the small JPEG thumb stays (for History). D1 rows cap at 2 MB,
+-- so the UI resizes before upload (long side 2048, JPEG).
+CREATE TABLE IF NOT EXISTS media (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  mime       TEXT    NOT NULL,                   -- image/jpeg | image/png | image/webp
+  data       BLOB,                               -- full image; NULL once posted (if a thumb exists)
+  thumb      BLOB,                               -- ~480px JPEG for the UI
+  bytes      INTEGER,
+  width      INTEGER,
+  height     INTEGER,
+  alt        TEXT,                               -- alt text (X bills $0.005 per image to set it)
+  created_at INTEGER NOT NULL,
+  posted_at  INTEGER
+);
+
+-- Drafts tab: suggestions (from AstroPiggy, or anything with the passphrase)
+-- waiting to be checked. Queue/Post moves them into `queue`; Dismiss keeps the
+-- row so its dedupe_key is never suggested again.
+CREATE TABLE IF NOT EXISTS drafts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  text       TEXT    NOT NULL DEFAULT '',
+  note       TEXT,                               -- why it was suggested (the fact behind it)
+  source     TEXT,                               -- 'astropiggy' by default
+  media      TEXT,                               -- JSON array of media ids
+  dedupe_key TEXT    UNIQUE,                     -- e.g. 'region:IS' - never suggested twice
+  status     TEXT    NOT NULL DEFAULT 'new',     -- new | queued | dismissed
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  queue_id   INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts (status, created_at);

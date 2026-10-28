@@ -46,9 +46,21 @@ branch; it will drift.
   `settings.fx_rate`. Default **USD**. Options: USD, EUR, GBP, AUD, CAD, NZD,
   JPY. FX via frankfurter.dev (cron-refreshed). UI picker matches coach picker
   styles (`.picker` / `.picker-btn` / `.picker-menu`)
-- **Costs:** always plain-text unit `$0.015` USD under the hood; convert with
-  `fx_rate` for display. Links are flagged in UI but **not** re-priced. Do not
-  pretend the estimate is X’s real invoice
+- **Costs:** plain-text unit `$0.015` USD per post (photos included: X does
+  not bill media upload), **+ $0.005 per photo with alt text** (separate Media
+  Metadata call). Convert with `fx_rate` for display. Links are flagged in UI
+  but **not** re-priced. Do not pretend the estimate is X’s real invoice
+- **Photos:** up to 4 per post (`queue.media` = JSON array of `media` ids).
+  Browser resizes to 2048px JPEG (HEIC → JPEG, strips location; small PNGs kept)
+  + a 480px thumb, `POST /api/media` (multipart). D1 row cap 2 MB → 1.75 MB max.
+  Posting uploads to `POST https://api.x.com/2/media/upload` (multipart,
+  OAuth 1.0a, `media_category=tweet_image`), then drops the full file and keeps
+  the thumb for History. Images are behind the passphrase: UI fetches → blob URL.
+  Cron deletes unreferenced images older than 24h
+- **Drafts tab:** `drafts` table, suggestions to check (AstroPiggy). Ingest
+  `POST /api/drafts` `{ drafts: [{ text, note, source, key, images: [{ data
+  (base64), mime, alt }] }] }`; `key` dedupes forever (dismiss keeps the row).
+  Queue/Post now move it into `queue`
 - No neuron usage meter that fakes a live remaining balance
 - Avoid em dashes in frontend UI copy
 

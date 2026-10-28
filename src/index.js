@@ -31,6 +31,25 @@ const AI_GEN_DEFAULT_DEMO = 3;
 // does not bake it into the number (heuristic billing is easy to get wrong).
 const COST_TEXT_USD = 0.015;
 const COST_LINK_USD = 0.2; // documented only; not used for estimates
+// Images: uploading to X is not billed and a post with images is still a
+// plain "Post: Create" ($0.015). Alt text is a separate "Media Metadata" call
+// ($0.005 per image), so it is the only thing photos add to the estimate.
+const COST_ALT_USD = 0.005;
+
+// Images (stored in D1 until posted, then the full file is dropped and only the
+// small thumbnail stays for History). D1 caps a row at 2 MB, so the UI
+// compresses to fit before upload.
+const X_MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload";
+const X_MEDIA_METADATA_URL = "https://api.x.com/2/media/metadata";
+const MAX_MEDIA = 4; // X allows up to 4 images per post
+const MAX_MEDIA_BYTES = 1_750_000;
+const MAX_THUMB_BYTES = 150_000;
+const MAX_ALT_LEN = 1000; // X alt text limit
+const MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp"];
+// Drafts tab: suggestions pushed in by AstroPiggy (or anything else) to check,
+// edit, then queue. Text may run long here; queueing still enforces 280.
+const MAX_DRAFT_TEXT = 4000;
+const MAX_DRAFT_NOTE = 600;
 
 // Display currencies (X bills in USD; we convert for the UI).
 const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "NZD", "JPY"];
@@ -103,7 +122,7 @@ async function handleApi(request, env, ctx, url) {
       const before = Number(url.searchParams.get("before")) || Date.now();
       const rows = (
         await env.DB.prepare(
-          "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind FROM queue " +
+          "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind, cost_usd, media FROM queue " +
             "WHERE status IN ('posted','failed') AND COALESCE(posted_at, created_at) < ?1 " +
             "ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
         )
@@ -111,15 +130,17 @@ async function handleApi(request, env, ctx, url) {
           .all()
       ).results;
       // Mirror getState: recompute per-row cost heuristically so figures match.
+      await ensureMediaSchema(env);
+      await attachMedia(env, rows);
       for (const h of rows) {
-        if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text) : 0;
+        if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text, h.media) : 0;
       }
       return json({ ok: true, history: rows });
     }
 
     if (pathname === "/api/queue" && method === "POST") {
       const body = await request.json();
-      return await addToQueue(env, String(body.text || ""), body.kind, request);
+      return await addToQueue(env, String(body.text || ""), body.kind, request, body.media);
     }
 
     // Bulk import: add many posts at once. Body: { texts: string[] }.
@@ -148,15 +169,29 @@ async function handleApi(request, env, ctx, url) {
     if (edit && method === "PATCH") {
       const body = await request.json();
       const text = String(body.text || "").trim();
-      if (!text) return json({ ok: false, error: "Empty post." }, 400);
-      if (text.length > MAX_TWEET_LEN) {
-        return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
+      await ensureMediaSchema(env);
+      // media omitted = keep the current images; an array replaces them.
+      let res;
+      if (Array.isArray(body.media)) {
+        const media = await cleanMediaIds(env, body.media);
+        if (media.error) return json({ ok: false, error: media.error }, 400);
+        const bad = postTextError(text, media.ids);
+        if (bad) return json({ ok: false, error: bad }, 400);
+        res = await env.DB.prepare(
+          "UPDATE queue SET text = ?1, media = ?2 WHERE id = ?3 AND status = 'queued'"
+        )
+          .bind(text, mediaColumn(media.ids), Number(edit[1]))
+          .run();
+      } else {
+        const row = await env.DB.prepare("SELECT media FROM queue WHERE id = ?1").bind(Number(edit[1])).first();
+        const bad = postTextError(text, parseMediaIds(row && row.media));
+        if (bad) return json({ ok: false, error: bad }, 400);
+        res = await env.DB.prepare(
+          "UPDATE queue SET text = ?1 WHERE id = ?2 AND status = 'queued'"
+        )
+          .bind(text, Number(edit[1]))
+          .run();
       }
-      const res = await env.DB.prepare(
-        "UPDATE queue SET text = ?1 WHERE id = ?2 AND status = 'queued'"
-      )
-        .bind(text, Number(edit[1]))
-        .run();
       if (!res.meta || res.meta.changes === 0) {
         return json({ ok: false, error: "Post not found or already posted." }, 404);
       }
@@ -235,7 +270,72 @@ async function handleApi(request, env, ctx, url) {
     // Body: { text, kind?: "lightning" } - kind is kept for history tracking only.
     if (pathname === "/api/post-text" && method === "POST") {
       const body = await request.json();
-      return await postTextNow(env, String(body.text || ""), body.kind, request);
+      return await postTextNow(env, String(body.text || ""), body.kind, request, body.media);
+    }
+
+    // ---- Images ----
+    // Upload one image (multipart: file, thumb?, alt?, width?, height?). The UI
+    // resizes/compresses first; iPhone HEIC arrives here already as JPEG.
+    if (pathname === "/api/media" && method === "POST") {
+      return await uploadMedia(env, request);
+    }
+
+    // Serve an image back to the UI (?v=thumb for the small one). Behind the
+    // same passphrase gate, so the UI fetches it and shows a blob URL.
+    const mediaItem = pathname.match(/^\/api\/media\/(\d+)$/);
+    if (mediaItem && method === "GET") {
+      return await serveMedia(env, Number(mediaItem[1]), url.searchParams.get("v"));
+    }
+
+    // Set or clear alt text. Body: { alt }.
+    if (mediaItem && method === "PATCH") {
+      const body = await request.json().catch(() => ({}));
+      await ensureMediaSchema(env);
+      const alt = String((body && body.alt) || "").trim().slice(0, MAX_ALT_LEN);
+      await env.DB.prepare("UPDATE media SET alt = ?1 WHERE id = ?2")
+        .bind(alt || null, Number(mediaItem[1]))
+        .run();
+      return json({ ok: true, ...(await getState(env, request)) });
+    }
+
+    // ---- Drafts (AstroPiggy suggestions to check before they queue) ----
+    // Add drafts. Body: { drafts: [{ text, note?, source?, key?, media?: [id],
+    // images?: [{ data: base64, mime, alt?, width?, height? }] }] } or one draft
+    // object. `key` dedupes: the same key is never suggested twice, even after
+    // it was dismissed.
+    if (pathname === "/api/drafts" && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await addDrafts(env, body || {});
+    }
+
+    const draftItem = pathname.match(/^\/api\/drafts\/(\d+)$/);
+    if (draftItem && method === "PATCH") {
+      const body = await request.json().catch(() => ({}));
+      return await editDraft(env, Number(draftItem[1]), body || {}, request);
+    }
+    // Dismiss (kept as 'dismissed' so its key stays blocked).
+    if (draftItem && method === "DELETE") {
+      await ensureMediaSchema(env);
+      await env.DB.prepare(
+        "UPDATE drafts SET status = 'dismissed', updated_at = ?1 WHERE id = ?2 AND status = 'new'"
+      )
+        .bind(Date.now(), Number(draftItem[1]))
+        .run();
+      return json({ ok: true, ...(await getState(env, request)) });
+    }
+
+    // Queue a draft (optionally with edits). Body: { text?, media? }.
+    const draftQueue = pathname.match(/^\/api\/drafts\/(\d+)\/queue$/);
+    if (draftQueue && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await queueDraft(env, Number(draftQueue[1]), body || {}, request, false);
+    }
+
+    // Post a draft right now (still respects the daily cap).
+    const draftPost = pathname.match(/^\/api\/drafts\/(\d+)\/post$/);
+    if (draftPost && method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      return await queueDraft(env, Number(draftPost[1]), body || {}, request, true);
     }
 
     // ---- Review deck (Tinder-style triage before / instead of bulk import) ----
@@ -353,18 +453,19 @@ async function ensureQueueKindColumn(env) {
   }
 }
 
-async function addToQueue(env, text, kind, request = null) {
+async function addToQueue(env, text, kind, request = null, mediaIn = []) {
   text = text.trim();
-  if (!text) return json({ ok: false, error: "Empty post." }, 400);
-  if (text.length > MAX_TWEET_LEN) {
-    return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
-  }
+  await ensureMediaSchema(env);
+  const media = await cleanMediaIds(env, mediaIn);
+  if (media.error) return json({ ok: false, error: media.error }, 400);
+  const bad = postTextError(text, media.ids);
+  if (bad) return json({ ok: false, error: bad }, 400);
   await ensureQueueKindColumn(env);
   const k = normalizeKind(kind);
   await env.DB.prepare(
-    "INSERT INTO queue (text, status, created_at, kind) VALUES (?1, 'queued', ?2, ?3)"
+    "INSERT INTO queue (text, status, created_at, kind, media) VALUES (?1, 'queued', ?2, ?3, ?4)"
   )
-    .bind(text, Date.now(), k)
+    .bind(text, Date.now(), k, mediaColumn(media.ids))
     .run();
   return json({ ok: true, ...(await getState(env, request)) });
 }
@@ -373,19 +474,23 @@ async function addToQueue(env, text, kind, request = null) {
 // (still respects the daily cap). On success it becomes a 'posted' row and resets
 // the interval clock; on failure it stays queued so nothing is lost.
 async function postQueuedNow(env, id, request = null) {
+  await ensureMediaSchema(env);
   const item = await env.DB.prepare(
-    "SELECT id, text FROM queue WHERE id = ?1 AND status = 'queued'"
+    "SELECT id, text, media FROM queue WHERE id = ?1 AND status = 'queued'"
   ).bind(id).first();
   if (!item) return json({ ok: false, error: "Post not found or already posted." }, 404);
   if ((await countRecentPosts(env)) >= DAILY_CAP) {
     return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
   }
   const now = Date.now();
+  const mediaIds = parseMediaIds(item.media);
   try {
-    const tweetId = await postTweet(env, item.text);
+    const cost = await mediaCostUsd(env, item.text, mediaIds);
+    const tweetId = await postTweet(env, item.text, mediaIds);
     await env.DB.prepare(
       "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL, cost_usd = ?3 WHERE id = ?4"
-    ).bind(now, tweetId, postCostUsd(item.text), item.id).run();
+    ).bind(now, tweetId, cost, item.id).run();
+    await markMediaPosted(env, mediaIds, now);
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1").bind(now).run();
     return json({ ok: true, result: { posted: true, tweet_id: tweetId }, ...(await getState(env, request)) });
   } catch (err) {
@@ -478,12 +583,13 @@ async function addBulk(env, texts, request = null) {
 // success it's recorded as a 'posted' row (so it shows in history and counts
 // toward the 24h cap) and resets the interval clock so the queue keeps spacing.
 // kind "lightning" is stored for personal tracking (⚡ badge in history).
-async function postTextNow(env, text, kind, request = null) {
+async function postTextNow(env, text, kind, request = null, mediaIn = []) {
   text = text.trim();
-  if (!text) return json({ ok: false, error: "Empty post." }, 400);
-  if (text.length > MAX_TWEET_LEN) {
-    return json({ ok: false, error: `Too long (${text.length}/${MAX_TWEET_LEN}).` }, 400);
-  }
+  await ensureMediaSchema(env);
+  const media = await cleanMediaIds(env, mediaIn);
+  if (media.error) return json({ ok: false, error: media.error }, 400);
+  const bad = postTextError(text, media.ids);
+  if (bad) return json({ ok: false, error: bad }, 400);
   if ((await countRecentPosts(env)) >= DAILY_CAP) {
     return json({ ok: false, error: `Daily cap reached (${DAILY_CAP}/24h).` }, 429);
   }
@@ -491,12 +597,14 @@ async function postTextNow(env, text, kind, request = null) {
   const k = normalizeKind(kind);
   const now = Date.now();
   try {
-    const tweetId = await postTweet(env, text);
+    const cost = await mediaCostUsd(env, text, media.ids);
+    const tweetId = await postTweet(env, text, media.ids);
     await env.DB.prepare(
-      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd, kind) VALUES (?1, 'posted', ?2, ?2, ?3, ?4, ?5)"
+      "INSERT INTO queue (text, status, created_at, posted_at, tweet_id, cost_usd, kind, media) VALUES (?1, 'posted', ?2, ?2, ?3, ?4, ?5, ?6)"
     )
-      .bind(text, now, tweetId, postCostUsd(text), k)
+      .bind(text, now, tweetId, cost, k, mediaColumn(media.ids))
       .run();
+    await markMediaPosted(env, media.ids, now);
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
       .run();
@@ -513,6 +621,7 @@ async function getState(env, request = null) {
   // Ensure review tables + optional kind column exist.
   await ensureReviewSchema(env);
   await ensureQueueKindColumn(env);
+  await ensureMediaSchema(env);
   if (isDemo(env)) {
     try {
       await ensureDemoSeed(env);
@@ -524,16 +633,24 @@ async function getState(env, request = null) {
 
   const queued = (
     await env.DB.prepare(
-      "SELECT id, text, created_at, kind FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
+      "SELECT id, text, created_at, kind, media FROM queue WHERE status = 'queued' ORDER BY created_at ASC"
     ).all()
   ).results;
 
   const history = (
     await env.DB.prepare(
-      "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind FROM queue " +
+      "SELECT id, text, status, tweet_id, error, posted_at, created_at, kind, cost_usd, media FROM queue " +
         "WHERE status IN ('posted','failed') ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
     ).all()
   ).results;
+
+  const drafts = (
+    await env.DB.prepare(
+      "SELECT id, text, note, source, media, created_at FROM drafts WHERE status = 'new' ORDER BY created_at DESC, id DESC"
+    ).all()
+  ).results;
+
+  await attachMedia(env, [...queued, ...history, ...drafts]);
 
   const historyTotal = (
     await env.DB.prepare(
@@ -545,12 +662,13 @@ async function getState(env, request = null) {
   // in the UI but not priced into the number.
   let queueEstimateUsd = 0;
   for (const q of queued) {
-    q.cost_usd = postCostUsd(q.text);
+    q.cost_usd = postCostUsd(q.text, q.media);
     queueEstimateUsd += q.cost_usd;
   }
   for (const h of history) {
-    if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text) : 0;
+    if (h.cost_usd == null) h.cost_usd = h.status === "posted" ? postCostUsd(h.text, h.media) : 0;
   }
+  for (const d of drafts) d.cost_usd = postCostUsd(d.text, d.media);
   const totalSpentUsd = (
     await env.DB.prepare(
       "SELECT COALESCE(SUM(cost_usd), 0) AS s FROM queue WHERE status = 'posted'"
@@ -583,6 +701,7 @@ async function getState(env, request = null) {
     queued,
     history,
     historyTotal,
+    drafts,
     // Currency for cost display (X still bills in USD).
     display_currency: displayCurrency,
     currencies: CURRENCIES,
@@ -591,6 +710,10 @@ async function getState(env, request = null) {
     fx_usd_aud: displayCurrency === "AUD" ? fxRate : DEFAULT_FX.AUD,
     cost_text_usd: COST_TEXT_USD,
     cost_link_usd: COST_LINK_USD,
+    cost_alt_usd: COST_ALT_USD,
+    max_media: MAX_MEDIA,
+    max_media_bytes: MAX_MEDIA_BYTES,
+    max_thumb_bytes: MAX_THUMB_BYTES,
     queue_estimate_usd: queueEstimateUsd,
     total_spent_usd: totalSpentUsd,
     spent_posts: spentPosts,
@@ -2056,6 +2179,11 @@ async function runScheduler(env) {
       console.error("demo_ai_calls cleanup failed:", e);
     }
   }
+  try {
+    await cleanupOrphanMedia(env);
+  } catch (e) {
+    console.error("media cleanup failed:", e);
+  }
   // Keep the USD->AUD rate fresh (isolated so an FX outage never blocks posting).
   try {
     await refreshFx(env);
@@ -2073,6 +2201,7 @@ async function runScheduler(env) {
 // Core posting decision. Shared by the cron and the manual "post now" button.
 async function postNext(env, { ignoreInterval }) {
   const settings = await getSettings(env);
+  await ensureMediaSchema(env);
   const now = Date.now();
 
   // 1. Enough time elapsed since the last post? (cron only)
@@ -2094,19 +2223,22 @@ async function postNext(env, { ignoreInterval }) {
   // 3. Anything to post?
   const item = (
     await env.DB.prepare(
-      "SELECT id, text, attempts FROM queue WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
+      "SELECT id, text, attempts, media FROM queue WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
     ).first()
   );
   if (!item) return { skipped: "empty" };
 
   // 4. Post it.
+  const mediaIds = parseMediaIds(item.media);
   try {
-    const tweetId = await postTweet(env, item.text);
+    const cost = await mediaCostUsd(env, item.text, mediaIds);
+    const tweetId = await postTweet(env, item.text, mediaIds);
     await env.DB.prepare(
       "UPDATE queue SET status = 'posted', posted_at = ?1, tweet_id = ?2, error = NULL, cost_usd = ?3 WHERE id = ?4"
     )
-      .bind(now, tweetId, postCostUsd(item.text), item.id)
+      .bind(now, tweetId, cost, item.id)
       .run();
+    await markMediaPosted(env, mediaIds, now);
     await env.DB.prepare("UPDATE settings SET last_posted_at = ?1 WHERE id = 1")
       .bind(now)
       .run();
@@ -2327,10 +2459,365 @@ async function ensureDemoSeed(env) {
 }
 
 // ---------------------------------------------------------------------------
+// Images + Drafts
+// ---------------------------------------------------------------------------
+
+let mediaSchemaReady = false;
+
+// Lazy tables/columns for images and the Drafts tab (mirrors schema.sql).
+async function ensureMediaSchema(env) {
+  if (mediaSchemaReady) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS media (" +
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, mime TEXT NOT NULL, data BLOB, thumb BLOB, " +
+        "bytes INTEGER, width INTEGER, height INTEGER, alt TEXT, " +
+        "created_at INTEGER NOT NULL, posted_at INTEGER)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS drafts (" +
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL DEFAULT '', note TEXT, source TEXT, " +
+        "media TEXT, dedupe_key TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'new', " +
+        "created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, queue_id INTEGER)"
+    ),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts (status, created_at)"),
+  ]);
+  try {
+    await env.DB.prepare("ALTER TABLE queue ADD COLUMN media TEXT").run();
+  } catch (_) {
+    /* column already exists */
+  }
+  mediaSchemaReady = true;
+}
+
+// queue.media / drafts.media hold a JSON array of media ids (or NULL).
+function parseMediaIds(col) {
+  if (!col) return [];
+  try {
+    const arr = JSON.parse(col);
+    return Array.isArray(arr) ? arr.map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function mediaColumn(ids) {
+  return ids && ids.length ? JSON.stringify(ids) : null;
+}
+
+// Same rule everywhere a post is created or edited: text, images, or both.
+function postTextError(text, mediaIds) {
+  if (!text && !(mediaIds && mediaIds.length)) return "Empty post.";
+  if (text.length > MAX_TWEET_LEN) return `Too long (${text.length}/${MAX_TWEET_LEN}).`;
+  return null;
+}
+
+// Validate ids from the client: unique, at most 4, and still holding the full
+// image (a posted image keeps only its thumbnail and cannot go out again).
+async function cleanMediaIds(env, input) {
+  if (input == null) return { ids: [] };
+  if (!Array.isArray(input)) return { error: "media must be a list of image ids." };
+  const ids = [];
+  for (const v of input) {
+    const n = Number(v);
+    if (Number.isInteger(n) && n > 0 && !ids.includes(n)) ids.push(n);
+  }
+  if (ids.length > MAX_MEDIA) return { error: `Up to ${MAX_MEDIA} images per post.` };
+  if (!ids.length) return { ids };
+  const rows = (
+    await env.DB.prepare(
+      `SELECT id FROM media WHERE data IS NOT NULL AND id IN (${ids.map((_, i) => "?" + (i + 1)).join(",")})`
+    )
+      .bind(...ids)
+      .all()
+  ).results;
+  if (rows.length !== ids.length) return { error: "An image is missing. Remove it and attach it again." };
+  return { ids };
+}
+
+// Replace each row's media column with [{ id, alt, width, height, has_full }].
+async function attachMedia(env, rows) {
+  const all = new Set();
+  for (const r of rows) {
+    r.media = parseMediaIds(r.media);
+    r.media.forEach((id) => all.add(id));
+  }
+  const meta = new Map();
+  const ids = [...all];
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const res = (
+      await env.DB.prepare(
+        "SELECT id, alt, width, height, data IS NOT NULL AS has_full FROM media WHERE id IN (" +
+          chunk.map((_, k) => "?" + (k + 1)).join(",") +
+          ")"
+      )
+        .bind(...chunk)
+        .all()
+    ).results;
+    for (const m of res) meta.set(m.id, m);
+  }
+  for (const r of rows) r.media = r.media.map((id) => meta.get(id)).filter(Boolean);
+  return rows;
+}
+
+async function mediaCostUsd(env, text, mediaIds) {
+  if (!mediaIds || !mediaIds.length) return postCostUsd(text);
+  const [row] = await attachMedia(env, [{ media: JSON.stringify(mediaIds) }]);
+  return postCostUsd(text, row.media);
+}
+
+// After a successful post, drop the full image and keep the thumbnail for
+// History. Images that never got a thumbnail (pushed in by API) keep the file.
+async function markMediaPosted(env, mediaIds, now) {
+  if (!mediaIds || !mediaIds.length) return;
+  await env.DB.batch(
+    mediaIds.map((id) =>
+      env.DB.prepare(
+        "UPDATE media SET posted_at = ?1, data = CASE WHEN thumb IS NOT NULL THEN NULL ELSE data END WHERE id = ?2"
+      ).bind(now, id)
+    )
+  );
+}
+
+async function insertMedia(env, { mime, data, thumb, alt, width, height }) {
+  const row = await env.DB.prepare(
+    "INSERT INTO media (mime, data, thumb, bytes, width, height, alt, created_at) " +
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id"
+  )
+    .bind(
+      mime,
+      data,
+      thumb || null,
+      data.byteLength,
+      Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+      Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      alt || null,
+      Date.now()
+    )
+    .first();
+  return row.id;
+}
+
+async function uploadMedia(env, request) {
+  await ensureMediaSchema(env);
+  let form;
+  try {
+    form = await request.formData();
+  } catch (_) {
+    return json({ ok: false, error: "Send the image as multipart form data." }, 400);
+  }
+  const file = form.get("file");
+  if (!file || typeof file === "string") return json({ ok: false, error: "No image attached." }, 400);
+  const mime = String(file.type || "").toLowerCase();
+  if (!MEDIA_TYPES.includes(mime)) {
+    return json({ ok: false, error: "Use a JPEG, PNG or WebP image." }, 400);
+  }
+  const data = await file.arrayBuffer();
+  if (data.byteLength > MAX_MEDIA_BYTES) {
+    return json({ ok: false, error: "Image is too large after compression." }, 413);
+  }
+  let thumb = null;
+  const t = form.get("thumb");
+  if (t && typeof t !== "string") {
+    const buf = await t.arrayBuffer();
+    if (buf.byteLength <= MAX_THUMB_BYTES) thumb = buf;
+  }
+  const alt = String(form.get("alt") || "").trim().slice(0, MAX_ALT_LEN);
+  const width = Number(form.get("width"));
+  const height = Number(form.get("height"));
+  const id = await insertMedia(env, { mime, data, thumb, alt, width, height });
+  return json({
+    ok: true,
+    media: { id, alt: alt || null, width: width || null, height: height || null, has_full: 1 },
+  });
+}
+
+async function serveMedia(env, id, variant) {
+  await ensureMediaSchema(env);
+  const row = await env.DB.prepare("SELECT mime, data, thumb FROM media WHERE id = ?1").bind(id).first();
+  if (!row) return json({ ok: false, error: "Not found." }, 404);
+  // Thumbnails are always JPEG. Fall back to whichever version still exists.
+  const useThumb = (variant === "thumb" && row.thumb != null) || row.data == null;
+  const bytes = useThumb ? row.thumb : row.data;
+  if (bytes == null) return json({ ok: false, error: "Not found." }, 404);
+  return new Response(new Uint8Array(bytes), {
+    headers: {
+      "content-type": useThumb ? "image/jpeg" : row.mime,
+      "cache-control": "private, max-age=86400",
+    },
+  });
+}
+
+// Drop images nobody references (attached then removed, or the post was
+// deleted) once they are a day old. Thumbnails of posted images are kept.
+async function cleanupOrphanMedia(env) {
+  await ensureMediaSchema(env);
+  const used = new Set();
+  const cols = [
+    ...(await env.DB.prepare("SELECT media FROM queue WHERE media IS NOT NULL").all()).results,
+    ...(await env.DB.prepare("SELECT media FROM drafts WHERE media IS NOT NULL AND status = 'new'").all()).results,
+  ];
+  for (const r of cols) parseMediaIds(r.media).forEach((id) => used.add(id));
+  const old = (
+    await env.DB.prepare("SELECT id FROM media WHERE created_at < ?1").bind(Date.now() - DAY_MS).all()
+  ).results;
+  const drop = old.map((r) => r.id).filter((id) => !used.has(id));
+  if (!drop.length) return;
+  await env.DB.batch(drop.map((id) => env.DB.prepare("DELETE FROM media WHERE id = ?1").bind(id)));
+}
+
+function base64ToBytes(b64) {
+  const clean = String(b64 || "").replace(/^data:[^,]*,/, "").replace(/\s+/g, "");
+  const bin = atob(clean);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function addDrafts(env, body) {
+  await ensureMediaSchema(env);
+  const list = Array.isArray(body.drafts) ? body.drafts : [body];
+  const now = Date.now();
+  const ids = [];
+  let duplicates = 0;
+  const errors = [];
+  for (let i = 0; i < list.length; i++) {
+    const d = list[i] || {};
+    const text = String(d.text || "").trim().slice(0, MAX_DRAFT_TEXT);
+    const note = String(d.note || "").trim().slice(0, MAX_DRAFT_NOTE) || null;
+    const source = String(d.source || "astropiggy").trim().toLowerCase().slice(0, 40);
+    const key = d.key != null && String(d.key).trim() ? String(d.key).trim().slice(0, 200) : null;
+    if (key) {
+      const seen = await env.DB.prepare("SELECT id FROM drafts WHERE dedupe_key = ?1").bind(key).first();
+      if (seen) { duplicates++; continue; }
+    }
+    const media = await cleanMediaIds(env, Array.isArray(d.media) ? d.media : []);
+    if (media.error) { errors.push({ index: i, error: media.error }); continue; }
+    const mediaIds = media.ids.slice();
+    const images = Array.isArray(d.images) ? d.images : [];
+    let imageError = null;
+    for (const img of images) {
+      if (mediaIds.length >= MAX_MEDIA) { imageError = `Up to ${MAX_MEDIA} images per post.`; break; }
+      const mime = String((img && img.mime) || "image/jpeg").toLowerCase();
+      if (!MEDIA_TYPES.includes(mime)) { imageError = "Use a JPEG, PNG or WebP image."; break; }
+      let bytes;
+      try {
+        bytes = base64ToBytes(img.data);
+      } catch (_) {
+        imageError = "Image data is not valid base64."; break;
+      }
+      if (!bytes.byteLength || bytes.byteLength > MAX_MEDIA_BYTES) { imageError = "Image is empty or too large."; break; }
+      mediaIds.push(
+        await insertMedia(env, {
+          mime,
+          data: bytes.buffer,
+          thumb: null,
+          alt: String(img.alt || "").trim().slice(0, MAX_ALT_LEN),
+          width: Number(img.width),
+          height: Number(img.height),
+        })
+      );
+    }
+    if (imageError) { errors.push({ index: i, error: imageError }); continue; }
+    if (!text && !mediaIds.length) { errors.push({ index: i, error: "Empty draft." }); continue; }
+    const row = await env.DB.prepare(
+      "INSERT INTO drafts (text, note, source, media, dedupe_key, status, created_at, updated_at) " +
+        "VALUES (?1, ?2, ?3, ?4, ?5, 'new', ?6, ?6) RETURNING id"
+    )
+      .bind(text, note, source, mediaColumn(mediaIds), key, now + i)
+      .first();
+    ids.push(row.id);
+  }
+  return json({ ok: true, added: ids.length, ids, duplicates, errors });
+}
+
+async function editDraft(env, id, body, request) {
+  await ensureMediaSchema(env);
+  const draft = await env.DB.prepare("SELECT media FROM drafts WHERE id = ?1 AND status = 'new'").bind(id).first();
+  if (!draft) return json({ ok: false, error: "Draft not found." }, 404);
+  const text = String(body.text || "").trim();
+  let mediaIds = parseMediaIds(draft.media);
+  if (Array.isArray(body.media)) {
+    const media = await cleanMediaIds(env, body.media);
+    if (media.error) return json({ ok: false, error: media.error }, 400);
+    mediaIds = media.ids;
+  }
+  const bad = postTextError(text, mediaIds);
+  if (bad) return json({ ok: false, error: bad }, 400);
+  await env.DB.prepare("UPDATE drafts SET text = ?1, media = ?2, updated_at = ?3 WHERE id = ?4")
+    .bind(text, mediaColumn(mediaIds), Date.now(), id)
+    .run();
+  return json({ ok: true, ...(await getState(env, request)) });
+}
+
+// Move a draft into the queue (or straight to X when postNow). Optional
+// body.text / body.media apply edits in the same step.
+async function queueDraft(env, id, body, request, postNow) {
+  await ensureMediaSchema(env);
+  const draft = await env.DB.prepare(
+    "SELECT text, media FROM drafts WHERE id = ?1 AND status = 'new'"
+  ).bind(id).first();
+  if (!draft) return json({ ok: false, error: "Draft not found." }, 404);
+  const text = (body.text != null ? String(body.text) : draft.text || "").trim();
+  const mediaIn = Array.isArray(body.media) ? body.media : parseMediaIds(draft.media);
+  const res = postNow
+    ? await postTextNow(env, text, null, request, mediaIn)
+    : await addToQueue(env, text, null, request, mediaIn);
+  if (!res.ok) return res;
+  // The new queue row is the most recent one with this text.
+  const q = await env.DB.prepare("SELECT id FROM queue ORDER BY id DESC LIMIT 1").first();
+  await env.DB.prepare(
+    "UPDATE drafts SET status = 'queued', queue_id = ?1, text = ?2, media = ?3, updated_at = ?4 WHERE id = ?5"
+  )
+    .bind(q ? q.id : null, text, mediaColumn(mediaIn.map(Number)), Date.now(), id)
+    .run();
+  return json({ ok: true, ...(await getState(env, request)) });
+}
+
+// Upload one stored image to X and return X's media id. Alt text, when set,
+// is one extra metadata call ($0.005). If that call fails the post still goes
+// out (without alt) rather than blocking the queue.
+async function uploadMediaToX(env, id) {
+  const row = await env.DB.prepare("SELECT mime, data, alt FROM media WHERE id = ?1").bind(id).first();
+  if (!row || row.data == null) throw new Error(`Image ${id} is missing.`);
+  const form = new FormData();
+  form.append("media", new Blob([new Uint8Array(row.data)], { type: row.mime }), "image");
+  form.append("media_category", "tweet_image");
+  // Multipart body params are not part of the OAuth 1.0a signature.
+  const res = await fetch(X_MEDIA_UPLOAD_URL, {
+    method: "POST",
+    headers: { Authorization: await buildOAuthHeader(env, "POST", X_MEDIA_UPLOAD_URL) },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  const mediaId = (data && data.data && data.data.id) || (data && data.media_id_string);
+  if (!res.ok || !mediaId) {
+    throw new Error(`X media upload ${res.status}: ${JSON.stringify(data)}`);
+  }
+  if (row.alt) {
+    try {
+      const metaRes = await fetch(X_MEDIA_METADATA_URL, {
+        method: "POST",
+        headers: {
+          Authorization: await buildOAuthHeader(env, "POST", X_MEDIA_METADATA_URL),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: String(mediaId), metadata: { alt_text: { text: row.alt } } }),
+      });
+      if (!metaRes.ok) console.error("alt text failed:", metaRes.status, await metaRes.text());
+    } catch (e) {
+      console.error("alt text failed:", e);
+    }
+  }
+  return String(mediaId);
+}
+
+// ---------------------------------------------------------------------------
 // X API — OAuth 1.0a user-context POST /2/tweets
 // ---------------------------------------------------------------------------
 
-async function postTweet(env, text) {
+async function postTweet(env, text, mediaIds = []) {
   // Demo mode: pretend the post succeeded. No X credentials required.
   if (isDemo(env)) {
     return "demo_" + Date.now().toString(36);
@@ -2338,6 +2825,13 @@ async function postTweet(env, text) {
   for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) {
     if (!env[k]) throw new Error(`Missing secret ${k}`);
   }
+  // Upload images first (not billed by X). A retry after a failed post simply
+  // uploads again; X expires unused uploads on its own.
+  const xMediaIds = [];
+  for (const id of mediaIds) xMediaIds.push(await uploadMediaToX(env, id));
+  const payload = {};
+  if (text) payload.text = text;
+  if (xMediaIds.length) payload.media = { media_ids: xMediaIds };
   const authHeader = await buildOAuthHeader(env, "POST", X_POST_URL);
   const res = await fetch(X_POST_URL, {
     method: "POST",
@@ -2345,7 +2839,7 @@ async function postTweet(env, text) {
       Authorization: authHeader,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -2450,9 +2944,12 @@ function hasLink(text) {
   );
 }
 
-// Always the plain-text X rate. Not real billing — just a rough estimate.
-function postCostUsd(_text) {
-  return COST_TEXT_USD;
+// Plain-text X rate, plus the alt-text metadata call for each image that has
+// alt text (images themselves are free). Not real billing, just an estimate.
+// `media` is the [{ alt }, ...] list from attachMedia (or omitted).
+function postCostUsd(_text, media) {
+  const alts = Array.isArray(media) ? media.filter((m) => m && m.alt).length : 0;
+  return COST_TEXT_USD + alts * COST_ALT_USD;
 }
 
 // Refresh the cached USD→display-currency rate (frankfurter / ECB, no key).

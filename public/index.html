@@ -831,6 +831,14 @@
     .edit-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
     .edit-bar .spacer { flex: 1; }
     .edit-bar button { padding: 4px 12px; font-size: 13px; }
+    .edit-bar { flex-wrap: wrap; row-gap: 10px; }
+    .edit-bar .count, .edit-bar .cost { white-space: nowrap; }
+    @media (max-width: 520px) {
+      /* Photo + count + cost on one row, Cancel/Save together on the next. */
+      .edit-bar .spacer { flex: 0 0 100%; height: 0; }
+      .edit-bar .spacer + button { margin-left: auto; }
+      .edit-bar button { padding: 8px 18px; font-size: 15px; }
+    }
 
     .section-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 26px 2px 10px; }
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 22px 0 12px; }
@@ -890,6 +898,72 @@
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .modal-actions button { padding: 8px 16px; font-size: 14px; }
     .modal-actions .danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+    .modal-input {
+      display: block; width: 100%; min-height: 84px; resize: vertical;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font: inherit; font-size: 16px; padding: 8px; outline: none;
+    }
+    .modal-input:focus { border-color: var(--accent-dim); }
+    .modal-hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+
+    /* Photos: composer strip, queue/draft/history thumbnails, editor. */
+    .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .thumbs:empty { display: none; }
+    .thumb {
+      position: relative; width: 72px; height: 72px; flex: 0 0 auto;
+      border-radius: 8px; overflow: hidden;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+    .thumb.loading { animation: thumbPulse 1.1s ease-in-out infinite; }
+    @keyframes thumbPulse { 50% { opacity: .45; } }
+    .thumb .thumb-x {
+      position: absolute; top: 3px; right: 3px;
+      width: 24px; height: 24px; padding: 0; border-radius: 50%;
+      background: rgba(0, 0, 0, .7); border: 0; color: #fff; font-size: 15px; line-height: 24px;
+    }
+    .thumb .thumb-alt {
+      position: absolute; left: 3px; bottom: 3px;
+      padding: 2px 6px; border-radius: 5px; border: 0;
+      background: rgba(0, 0, 0, .7); color: #fff;
+      font-size: 10px; font-weight: 700; letter-spacing: .03em; line-height: 1.3;
+    }
+    .thumb .thumb-alt.set { background: var(--accent); }
+    span.thumb-alt { pointer-events: none; }
+    .photo-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 13px; color: var(--accent); cursor: pointer; white-space: nowrap;
+      border: 1px solid var(--border); border-radius: 999px; padding: 3px 11px;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .photo-btn:hover { border-color: var(--accent-dim); }
+    .photo-btn.disabled { opacity: .4; pointer-events: none; }
+    .composer.dragover { border-color: var(--accent); }
+    @media (pointer: coarse) {
+      .thumb { width: 76px; height: 76px; }
+      .thumb .thumb-x { width: 28px; height: 28px; line-height: 28px; font-size: 17px; }
+      .thumb .thumb-alt { padding: 4px 8px; font-size: 11px; }
+      .photo-btn { padding: 5px 12px; font-size: 14px; }
+    }
+    .lightbox {
+      position: fixed; inset: 0; z-index: 70;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, .9); cursor: zoom-out;
+      padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+    .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+
+    /* Drafts tab (AstroPiggy suggestions). */
+    .item.draft { flex-direction: column; align-items: stretch; }
+    .draft-note { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+    .badge.source { color: var(--accent); border-color: var(--accent-dim); }
+    .draft-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    .draft-actions button { padding: 5px 13px; font-size: 13px; }
+    .draft-warn { color: var(--danger); }
+    @media (max-width: 520px) {
+      .draft-actions button { flex: 1 1 0; padding: 9px 6px; font-size: 14px; min-height: 40px; }
+      .tab { padding: 9px 10px; font-size: 14px; }
+    }
   </style>
 </head>
 <body>
@@ -972,8 +1046,10 @@
         <p class="coach-note" id="coachNote" hidden></p>
         <div class="coach-status" id="coachStatus"></div>
       </div>
+      <div class="thumbs" id="composerThumbs"></div>
       <div class="composer-bottom">
         <div class="meta-row">
+          <label class="photo-btn" id="photoBtn" title="Attach up to 4 photos (no extra X cost)"><span aria-hidden="true">＋</span> Photo<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
           <span class="count" id="count">0 / 280</span>
           <span class="cost" id="costEst"></span>
           <span class="spacer"></span>
@@ -1106,6 +1182,7 @@
     <div class="tabs">
       <button class="tab active" id="tabQueue">Queue</button>
       <button class="tab" id="tabHistory">History</button>
+      <button class="tab" id="tabDrafts" title="Suggestions from AstroPiggy to check before they queue">Drafts</button>
       <button id="shuffleQueue" title="Randomise queue" aria-label="Randomise queue" hidden>🔀</button>
     </div>
     <div class="tab-summary" id="tabSummary"></div>
@@ -1155,6 +1232,8 @@
           var tabH = document.getElementById("tabHistory");
           if (tabQ && c.tab_queue) tabQ.textContent = String(c.tab_queue);
           if (tabH && c.tab_history) tabH.textContent = String(c.tab_history);
+          var tabD = document.getElementById("tabDrafts");
+          if (tabD && c.tab_drafts) tabD.textContent = String(c.tab_drafts);
           var next = document.getElementById("next");
           if (next && c.next_html) next.innerHTML = String(c.next_html);
           var sum = document.getElementById("tabSummary");
@@ -1178,7 +1257,10 @@
     </script>
     <div class="list" id="queue"></div>
     <div class="list" id="history" hidden></div>
+    <div class="list" id="drafts" hidden></div>
   </div>
+
+  <div class="lightbox" id="lightbox" hidden><img id="lightboxImg" alt=""></div>
 
   <div class="toast" id="toast"></div>
 
@@ -1253,7 +1335,10 @@
     let expandedId = null; // id of the queued post whose actions are revealed (mobile)
     let queueVisible = 50; // how many queued posts to render ("Load more" raises this)
     let historyExtra = []; // older history rows loaded past the first page (Load more)
-    let activeTab = "queue"; // which list tab is showing: "queue" | "history"
+    let activeTab = "queue"; // which list tab is showing: "queue" | "history" | "drafts"
+    let draftEditingId = null; // id of the draft currently being edited, or null
+    let activeEditor = null; // { key, root } so a re-render keeps unsaved edits
+    let composerMedia = []; // [{ id, alt }] or { pending: true } while uploading
     let reviewEditingId = null; // deck-list row being edited
     let reviewExpandedId = null; // deck-list row with actions revealed (mobile)
     let swipeMode = false; // full-screen card review open
@@ -1331,6 +1416,7 @@
         const sumEl = document.getElementById("tabSummary");
         const tabQ = document.getElementById("tabQueue");
         const tabH = document.getElementById("tabHistory");
+        const tabD = document.getElementById("tabDrafts");
         const badge = document.getElementById("reviewBadge");
         const note = document.getElementById("demoAiNote");
         const shuffle = document.getElementById("shuffleQueue");
@@ -1349,6 +1435,7 @@
           review_count: reviewCount,
           tab_queue: tabQ ? String(tabQ.textContent || "") : "",
           tab_history: tabH ? String(tabH.textContent || "") : "",
+          tab_drafts: tabD ? String(tabD.textContent || "") : "",
           next_html: nextEl ? String(nextEl.innerHTML || "") : "",
           tab_summary: sumEl ? String(sumEl.textContent || "") : "",
           demo_ai_note: note ? String(note.textContent || "") : "",
@@ -1739,45 +1826,16 @@
 
         if (item.id === editingId) {
           // Inline edit form. Auto-refresh is paused while editing (see refresh()).
-          const ta = document.createElement("textarea");
-          ta.className = "edit-area";
-          ta.value = item.text;
-          const bar = document.createElement("div");
-          bar.className = "edit-bar";
-          const cnt = document.createElement("span");
-          cnt.className = "count";
-          const save = document.createElement("button");
-          save.className = "primary";
-          save.textContent = "Save";
-          const cancel = document.createElement("button");
-          cancel.textContent = "Cancel";
-          const setCnt = () => {
-            const n = ta.value.length;
-            cnt.textContent = `${n} / ${MAX_LEN}`;
-            cnt.classList.toggle("over", n > MAX_LEN);
-            save.disabled = n === 0 || n > MAX_LEN;
-          };
-          ta.addEventListener("input", () => { setCnt(); autoGrow(ta); });
-          ta.addEventListener("keydown", (e) => {
-            if (!isTouch && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save.click(); }
-            if (e.key === "Escape") { e.preventDefault(); cancel.click(); }
+          const ed = buildEditor({
+            key: "queue:" + item.id,
+            text: item.text,
+            media: item.media,
+            onSave: (text, media) => saveEdit(item.id, text, media),
+            onCancel: () => { editingId = null; activeEditor = null; render(); },
           });
-          save.onclick = () => saveEdit(item.id, ta.value.trim());
-          cancel.onclick = () => { editingId = null; render(); };
-          bar.append(cnt, document.createElement("span")); // spacer
-          bar.lastChild.className = "spacer";
-          bar.append(cancel, save);
-          const body = document.createElement("div");
-          body.className = "body";
-          body.append(ta, bar);
-          el.appendChild(body);
+          el.appendChild(ed.root);
           q.appendChild(el);
-          setCnt();
-          autoGrow(ta); // size to fit the full text - no inner scrolling
-          ta.focus();
-          // Pull the edit box up so the on-screen keyboard doesn't cover it.
-          // Deferred so it runs after render()'s scroll-restore and the keyboard opens.
-          setTimeout(() => ta.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
+          if (ed.fresh) { ed.fresh = false; ed.focus(); }
           return;
         }
 
@@ -1795,6 +1853,9 @@
             </div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
+        if (item.media && item.media.length) {
+          el.querySelector(".txt").after(thumbsEl(item.media));
+        }
         // Mobile: tap the post body to reveal/hide its action bar.
         if (isTouch) {
           el.querySelector(".body").addEventListener("click", (e) => {
@@ -1824,13 +1885,13 @@
         send.className = "iconbtn send";
         send.textContent = "➤";
         send.title = "Post this now";
-        send.onclick = () => postQueuedNow(item.id, item.text);
+        send.onclick = () => postQueuedNow(item.id, item.text, item.media);
 
         const edit = document.createElement("button");
         edit.className = "iconbtn";
         edit.textContent = "✎";
         edit.title = "Edit";
-        edit.onclick = () => { editingId = item.id; render(); };
+        edit.onclick = () => { editingId = item.id; activeEditor = null; render(); };
 
         const del = document.createElement("button");
         del.className = "iconbtn del";
@@ -1900,6 +1961,9 @@
             <div class="meta">${badge}<span>${fmtWhen(item.posted_at || item.created_at)}${costBit}${link}${err}</span></div>
           </div>`;
         el.querySelector(".txt").textContent = item.text;
+        if (item.media && item.media.length) {
+          el.querySelector(".txt").after(thumbsEl(item.media));
+        }
         h.appendChild(el);
       });
 
@@ -1914,18 +1978,531 @@
         h.appendChild(more);
       }
 
+      renderDrafts();
+
       applyTab(); // update tab labels/counts and which list is visible
       window.scrollTo(0, scrollY); // restore scroll so actions don't jump the page
+    }
+
+    // Drafts tab: suggestions (AstroPiggy etc.) to check, edit, then queue.
+    function renderDrafts() {
+      const d = document.getElementById("drafts");
+      d.innerHTML = "";
+      const list = state.drafts || [];
+      if (!list.length) {
+        d.innerHTML = '<div class="empty">Nothing to check. Suggestions from AstroPiggy land here: milestones, new regions, reviews, weekly recaps.</div>';
+        return;
+      }
+      list.forEach((item) => {
+        const el = document.createElement("div");
+        el.className = "item draft";
+        if (item.id === draftEditingId) {
+          const note = draftNoteEl(item);
+          const ed = buildEditor({
+            key: "draft:" + item.id,
+            text: item.text,
+            media: item.media,
+            onSave: (text, media) => saveDraft(item.id, text, media),
+            onCancel: () => { draftEditingId = null; activeEditor = null; render(); },
+          });
+          ed.root.prepend(note);
+          el.appendChild(ed.root);
+          d.appendChild(el);
+          if (ed.fresh) { ed.fresh = false; ed.focus(); }
+          return;
+        }
+        const len = (item.text || "").length;
+        const over = len > MAX_LEN;
+        const note = photoNote(item.media);
+        el.innerHTML = `
+          <div class="body">
+            <div class="txt"></div>
+            <div class="meta">
+              <span class="char-meta${over ? " over" : ""}">${len} / ${MAX_LEN}</span>
+              <span>suggested ${fmtWhen(item.created_at)}</span>
+              <span>· ${money(item.cost_usd)}${note ? " · " + escapeHtml(note) : ""}${textHasLink(item.text) ? ' <span class="cost link" title="X charges much more for posts with URLs; estimate is plain text only">(link)</span>' : ""}</span>
+              ${over ? '<span class="draft-warn">over 280, edit first</span>' : ""}
+            </div>
+            <div class="draft-actions"></div>
+          </div>`;
+        const body = el.querySelector(".body");
+        body.prepend(draftNoteEl(item));
+        el.querySelector(".txt").textContent = item.text;
+        if (item.media && item.media.length) el.querySelector(".txt").after(thumbsEl(item.media));
+        const actions = el.querySelector(".draft-actions");
+        const dismiss = document.createElement("button");
+        dismiss.className = "btn-secondary";
+        dismiss.textContent = "Dismiss";
+        dismiss.onclick = () => draftAction(item, "dismiss");
+        const edit = document.createElement("button");
+        edit.className = "btn-secondary";
+        edit.textContent = "Edit";
+        edit.onclick = () => { draftEditingId = item.id; activeEditor = null; render(); };
+        const post = document.createElement("button");
+        post.className = "btn-secondary";
+        post.textContent = "Post now";
+        post.disabled = over;
+        post.onclick = () => draftAction(item, "post");
+        const queue = document.createElement("button");
+        queue.className = "primary";
+        queue.textContent = "Queue";
+        queue.disabled = over;
+        queue.onclick = () => draftAction(item, "queue");
+        actions.append(dismiss, edit, post, queue);
+        d.appendChild(el);
+      });
+    }
+
+    function draftNoteEl(item) {
+      const note = document.createElement("div");
+      note.className = "draft-note";
+      const badge = document.createElement("span");
+      badge.className = "badge source";
+      badge.textContent = sourceLabel(item.source);
+      note.appendChild(badge);
+      if (item.note) {
+        const t = document.createElement("span");
+        t.textContent = item.note;
+        note.appendChild(t);
+      }
+      return note;
+    }
+
+    let draftBusy = false; // serialize draft actions (D1 read-after-write lag)
+    async function draftAction(item, action) {
+      if (draftBusy) return;
+      if (action === "post") {
+        const extra = photoNote(item.media);
+        const ok = await confirmDialog({
+          title: "Post to X now?",
+          body: (item.text || "(photo only)") + (extra ? "\n\n+ " + extra : ""),
+          quote: true,
+          confirmLabel: "Post now",
+        });
+        if (!ok) return;
+      }
+      draftBusy = true;
+      try {
+        const res = action === "dismiss"
+          ? await api("/api/drafts/" + item.id, { method: "DELETE" })
+          : await api("/api/drafts/" + item.id + "/" + (action === "post" ? "post" : "queue"), { method: "POST", body: "{}" });
+        if (res.ok) {
+          state = res;
+          render();
+          toast(action === "dismiss" ? "Dismissed" : action === "post" ? "Posted ✅" : "Queued");
+        } else {
+          toast(res.error || "Something went wrong");
+        }
+      } catch (e) { /* handled in api() */ } finally {
+        draftBusy = false;
+      }
+    }
+
+    async function saveDraft(id, text, media) {
+      try {
+        const res = await api("/api/drafts/" + id, { method: "PATCH", body: JSON.stringify({ text, media }) });
+        if (res.ok) {
+          draftEditingId = null;
+          activeEditor = null;
+          state = res;
+          render();
+          toast("Updated");
+        } else {
+          toast(res.error || "Failed to update");
+        }
+      } catch (e) { /* handled in api() */ }
     }
 
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
+
+    // ---- Photos ----
+    // The browser resizes/compresses before upload: long side 2048, JPEG, which
+    // also turns iPhone HEIC into JPEG and strips location data. Small PNGs
+    // (screenshots) go up untouched so text stays sharp.
+    function maxMedia() { return (state && state.max_media) || 4; }
+    function maxMediaBytes() { return (state && state.max_media_bytes) || 1750000; }
+    function maxThumbBytes() { return (state && state.max_thumb_bytes) || 150000; }
+    function altUnit() { return (state && state.cost_alt_usd) || 0.005; }
+    function postCost(media) {
+      const unit = (state && state.cost_text_usd) || COST_TEXT_USD;
+      return unit + (media || []).filter((m) => m && m.alt).length * altUnit();
+    }
+    // "2 photos · 1 alt" style note for cost lines.
+    function photoNote(media) {
+      const list = (media || []).filter((m) => m && !m.pending);
+      if (!list.length) return "";
+      const alts = list.filter((m) => m.alt).length;
+      return `${list.length} photo${list.length === 1 ? "" : "s"}` + (alts ? `, ${alts} alt` : "");
+    }
+
+    async function decodeImage(file) {
+      if (window.createImageBitmap) {
+        try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (_) { /* fall back */ }
+      }
+      return await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Can't read that image")); };
+        img.src = url;
+      });
+    }
+    function imageSize(src) {
+      return { w: src.naturalWidth || src.width, h: src.naturalHeight || src.height };
+    }
+    function encodeImage(src, maxSide, type, quality) {
+      const { w, h } = imageSize(src);
+      const scale = Math.min(1, maxSide / Math.max(w, h));
+      const cw = Math.max(1, Math.round(w * scale));
+      const ch = Math.max(1, Math.round(h * scale));
+      const c = document.createElement("canvas");
+      c.width = cw;
+      c.height = ch;
+      const ctx = c.getContext("2d");
+      if (type === "image/jpeg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cw, ch); }
+      ctx.drawImage(src, 0, 0, cw, ch);
+      return new Promise((resolve) => c.toBlob((blob) => {
+        c.width = c.height = 0; // free canvas memory right away (iOS is strict)
+        resolve({ blob, w: cw, h: ch });
+      }, type, quality));
+    }
+    async function prepareImage(file) {
+      const src = await decodeImage(file);
+      const { w, h } = imageSize(src);
+      const limit = maxMediaBytes();
+      let full = null;
+      if ((file.type || "").toLowerCase() === "image/png" && file.size <= limit && Math.max(w, h) <= 4096) {
+        full = { blob: file, w, h };
+      } else {
+        let side = 2048, q = 0.86;
+        for (let i = 0; i < 7; i++) {
+          full = await encodeImage(src, side, "image/jpeg", q);
+          if (full.blob && full.blob.size <= limit) break;
+          if (q > 0.7) q -= 0.08; else side = Math.round(side * 0.8);
+        }
+      }
+      const thumb = await encodeImage(src, 480, "image/jpeg", 0.75);
+      if (src.close) src.close();
+      if (!full || !full.blob || full.blob.size > limit) throw new Error("That image is too large");
+      return { full, thumb };
+    }
+
+    async function uploadImage(file) {
+      const { full, thumb } = await prepareImage(file);
+      const fd = new FormData();
+      fd.append("file", full.blob, full.blob.type === "image/png" ? "image.png" : "image.jpg");
+      if (thumb.blob && thumb.blob.size <= maxThumbBytes()) fd.append("thumb", thumb.blob, "thumb.jpg");
+      fd.append("width", String(full.w));
+      fd.append("height", String(full.h));
+      const res = await fetch("/api/media", { method: "POST", headers: { "x-app-secret": secret }, body: fd });
+      if (res.status === 401) {
+        localStorage.removeItem("xqueue_secret");
+        secret = "";
+        showLogin("Session ended - sign in again.");
+        throw new Error("unauthorized");
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed (" + res.status + ")");
+      // Show the local thumbnail straight away instead of fetching it back.
+      if (thumb.blob) mediaUrls.set(data.media.id + ":thumb", Promise.resolve(URL.createObjectURL(thumb.blob)));
+      return data.media;
+    }
+
+    // Images sit behind the passphrase, so fetch them and use blob URLs (cached).
+    const mediaUrls = new Map();
+    function mediaUrl(id, variant) {
+      const v = variant === "full" ? "full" : "thumb";
+      const key = id + ":" + v;
+      if (!mediaUrls.has(key)) {
+        mediaUrls.set(key, fetch("/api/media/" + id + (v === "thumb" ? "?v=thumb" : ""), { headers: { "x-app-secret": secret } })
+          .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("image " + r.status))))
+          .then((b) => URL.createObjectURL(b))
+          .catch(() => { mediaUrls.delete(key); return null; }));
+      }
+      return mediaUrls.get(key);
+    }
+
+    function openLightbox(id) {
+      const box = document.getElementById("lightbox");
+      const img = document.getElementById("lightboxImg");
+      img.removeAttribute("src");
+      box.hidden = false;
+      // Thumbnail first (instant), then the full image if it still exists.
+      mediaUrl(id, "thumb").then((u) => { if (u && !img.getAttribute("src")) img.src = u; });
+      mediaUrl(id, "full").then((u) => { if (u && !box.hidden) img.src = u; });
+    }
+    function closeLightbox() {
+      document.getElementById("lightbox").hidden = true;
+    }
+
+    // One thumbnail. opts.onRemove / opts.onAlt make it editable.
+    function thumbEl(m, opts = {}) {
+      const box = document.createElement("div");
+      box.className = "thumb" + (m.pending ? " loading" : "");
+      if (m.pending) return box;
+      const img = document.createElement("img");
+      img.alt = m.alt || "Photo";
+      img.decoding = "async";
+      mediaUrl(m.id).then((u) => { if (u) img.src = u; });
+      img.addEventListener("click", (e) => { e.stopPropagation(); openLightbox(m.id); });
+      box.appendChild(img);
+      if (opts.onAlt) {
+        const alt = document.createElement("button");
+        alt.type = "button";
+        alt.className = "thumb-alt" + (m.alt ? " set" : "");
+        alt.textContent = "ALT";
+        alt.title = m.alt ? "Alt text: " + m.alt : "Add alt text (+" + money(altUnit()) + " on X)";
+        alt.onclick = (e) => { e.stopPropagation(); opts.onAlt(); };
+        box.appendChild(alt);
+      } else if (m.alt) {
+        const alt = document.createElement("span");
+        alt.className = "thumb-alt set";
+        alt.textContent = "ALT";
+        box.title = m.alt;
+        box.appendChild(alt);
+      }
+      if (opts.onRemove) {
+        const x = document.createElement("button");
+        x.type = "button";
+        x.className = "thumb-x";
+        x.textContent = "×";
+        x.title = "Remove photo";
+        x.setAttribute("aria-label", "Remove photo");
+        x.onclick = (e) => { e.stopPropagation(); opts.onRemove(); };
+        box.appendChild(x);
+      }
+      return box;
+    }
+    function thumbsEl(media, opts) {
+      const wrap = document.createElement("div");
+      wrap.className = "thumbs";
+      (media || []).forEach((m, i) => wrap.appendChild(thumbEl(m, opts ? opts(m, i) : {})));
+      return wrap;
+    }
+
+    // Text prompt in the same modal as confirmDialog. Resolves the string, or
+    // null on cancel/dismiss.
+    function promptDialog(opts = {}) {
+      return new Promise((resolve) => {
+        const overlay = document.getElementById("modal");
+        const confirmBtn = document.getElementById("modalConfirm");
+        const cancelBtn = document.getElementById("modalCancel");
+        document.getElementById("modalTitle").textContent = opts.title || "";
+        const bodyEl = document.getElementById("modalBody");
+        bodyEl.className = "modal-body";
+        bodyEl.textContent = "";
+        const ta = document.createElement("textarea");
+        ta.className = "modal-input";
+        ta.value = opts.value || "";
+        ta.placeholder = opts.placeholder || "";
+        if (opts.maxLength) ta.maxLength = opts.maxLength;
+        bodyEl.appendChild(ta);
+        if (opts.hint) {
+          const hint = document.createElement("p");
+          hint.className = "modal-hint";
+          hint.textContent = opts.hint;
+          bodyEl.appendChild(hint);
+        }
+        confirmBtn.textContent = opts.confirmLabel || "Save";
+        confirmBtn.className = "primary";
+        cancelBtn.textContent = "Cancel";
+        function onKey(e) {
+          if (e.key === "Escape") close(null);
+          if (e.key === "Enter" && !e.shiftKey && !isTouch) { e.preventDefault(); close(ta.value); }
+        }
+        function close(result) {
+          overlay.hidden = true;
+          confirmBtn.onclick = cancelBtn.onclick = overlay.onclick = null;
+          document.removeEventListener("keydown", onKey);
+          resolve(result);
+        }
+        confirmBtn.onclick = () => close(ta.value);
+        cancelBtn.onclick = () => close(null);
+        overlay.onclick = (e) => { if (e.target === overlay) close(null); };
+        document.addEventListener("keydown", onKey);
+        overlay.hidden = false;
+        ta.focus();
+      });
+    }
+
+    // Edit one image's alt text (stored on the image right away).
+    async function editAlt(m) {
+      const value = await promptDialog({
+        title: "Alt text",
+        value: m.alt || "",
+        placeholder: "Describe the photo for people using screen readers",
+        maxLength: 1000,
+        hint: "Optional. X bills alt text as its own call: +" + money(altUnit()) + " per photo. Leave empty to skip it.",
+      });
+      if (value == null) return false;
+      const alt = value.trim();
+      if (alt === (m.alt || "")) return false;
+      try {
+        const res = await api("/api/media/" + m.id, { method: "PATCH", body: JSON.stringify({ alt }) });
+        if (!res.ok) { toast(res.error || "Couldn't save alt text"); return false; }
+        // Adopt quietly: a full render here would rebuild any open editor.
+        adoptState(res);
+        m.alt = alt || null;
+        return true;
+      } catch (e) { return false; }
+    }
+
+    // Upload files one at a time (gentle on iPhone memory). `list` is the
+    // live media array; placeholders show while each one uploads.
+    async function addPhotos(files, list, onChange) {
+      const images = Array.from(files || []).filter((f) => f && /^image\//i.test(f.type || "") || /\.(heic|heif)$/i.test((f && f.name) || ""));
+      if (!images.length) return;
+      const room = maxMedia() - list.length;
+      if (room <= 0) { toast("Up to " + maxMedia() + " photos per post"); return; }
+      if (images.length > room) toast("Only the first " + room + " fit (" + maxMedia() + " max)");
+      for (const file of images.slice(0, room)) {
+        const slot = { pending: true };
+        list.push(slot);
+        onChange();
+        try {
+          const m = await uploadImage(file);
+          const i = list.indexOf(slot);
+          if (i >= 0) list[i] = m;
+        } catch (e) {
+          const i = list.indexOf(slot);
+          if (i >= 0) list.splice(i, 1);
+          if (!e || e.message !== "unauthorized") toast((e && e.message) || "Upload failed");
+        }
+        onChange();
+      }
+    }
+    function mediaBusy(list) { return list.some((m) => m.pending); }
+
+    function photoPicker(list, onChange) {
+      const label = document.createElement("label");
+      label.className = "photo-btn" + (list.length >= maxMedia() ? " disabled" : "");
+      label.title = "Attach up to " + maxMedia() + " photos (no extra X cost)";
+      label.innerHTML = '<span aria-hidden="true">＋</span> Photo';
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.multiple = true;
+      input.hidden = true;
+      input.addEventListener("change", () => {
+        const files = Array.from(input.files || []);
+        input.value = "";
+        addPhotos(files, list, onChange);
+      });
+      label.appendChild(input);
+      return label;
+    }
+
+    // Inline editor used by queued posts and drafts: text + photos + cost.
+    // Kept alive across re-renders via activeEditor so nothing typed is lost.
+    function buildEditor({ key, text, media, saveLabel, onSave, onCancel }) {
+      if (activeEditor && activeEditor.key === key) return activeEditor;
+      const edMedia = (media || []).map((m) => ({ ...m }));
+      const root = document.createElement("div");
+      root.className = "body";
+      const ta = document.createElement("textarea");
+      ta.className = "edit-area";
+      ta.value = text || "";
+      const thumbs = document.createElement("div");
+      thumbs.className = "thumbs";
+      const bar = document.createElement("div");
+      bar.className = "edit-bar";
+      const cnt = document.createElement("span");
+      cnt.className = "count";
+      const cost = document.createElement("span");
+      cost.className = "cost";
+      const spacer = document.createElement("span");
+      spacer.className = "spacer";
+      const save = document.createElement("button");
+      save.className = "primary";
+      save.textContent = saveLabel || "Save";
+      const cancel = document.createElement("button");
+      cancel.textContent = "Cancel";
+      let picker = null;
+      const sync = () => {
+        const n = ta.value.length;
+        cnt.textContent = `${n} / ${MAX_LEN}`;
+        cnt.classList.toggle("over", n > MAX_LEN);
+        const note = photoNote(edMedia);
+        cost.textContent = "· " + money(postCost(edMedia)) + (note ? " · " + note : "");
+        save.disabled = (!ta.value.trim() && !edMedia.length) || n > MAX_LEN || mediaBusy(edMedia);
+      };
+      const paintMedia = () => {
+        thumbs.innerHTML = "";
+        edMedia.forEach((m) => thumbs.appendChild(thumbEl(m, m.pending ? {} : {
+          onRemove: () => { edMedia.splice(edMedia.indexOf(m), 1); paintMedia(); },
+          onAlt: async () => { if (await editAlt(m)) paintMedia(); },
+        })));
+        const p = photoPicker(edMedia, paintMedia);
+        if (picker) picker.replaceWith(p); else bar.prepend(p);
+        picker = p;
+        sync();
+      };
+      ta.addEventListener("input", () => { sync(); autoGrow(ta); });
+      ta.addEventListener("keydown", (e) => {
+        if (!isTouch && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!save.disabled) save.click(); }
+        if (e.key === "Escape") { e.preventDefault(); cancel.click(); }
+      });
+      ta.addEventListener("paste", (e) => {
+        const files = clipboardImages(e);
+        if (files.length) { e.preventDefault(); addPhotos(files, edMedia, paintMedia); }
+      });
+      save.onclick = () => onSave(ta.value.trim(), edMedia.filter((m) => !m.pending).map((m) => m.id));
+      cancel.onclick = () => onCancel();
+      bar.append(cnt, cost, spacer, cancel, save);
+      root.append(ta, thumbs, bar);
+      paintMedia();
+      const editor = {
+        key,
+        root,
+        fresh: true,
+        focus() {
+          autoGrow(ta);
+          ta.focus();
+          // Pull the edit box up so the on-screen keyboard doesn't cover it.
+          setTimeout(() => ta.scrollIntoView({ block: "center", behavior: "smooth" }), 120);
+        },
+      };
+      activeEditor = editor;
+      return editor;
+    }
+
+    function clipboardImages(e) {
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      const files = [];
+      for (const it of items) {
+        if (it.kind === "file" && /^image\//i.test(it.type)) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      return files;
+    }
+
+    // Composer strip under the write box.
+    function paintComposerMedia() {
+      const wrap = document.getElementById("composerThumbs");
+      wrap.innerHTML = "";
+      composerMedia.forEach((m) => wrap.appendChild(thumbEl(m, m.pending ? {} : {
+        onRemove: () => { composerMedia.splice(composerMedia.indexOf(m), 1); paintComposerMedia(); },
+        onAlt: async () => { if (await editAlt(m)) paintComposerMedia(); },
+      })));
+      document.getElementById("photoBtn").classList.toggle("disabled", composerMedia.length >= maxMedia());
+      updateCount();
+    }
+
+    function sourceLabel(src) {
+      const s = String(src || "").trim();
+      if (!s || s.toLowerCase() === "astropiggy") return "AstroPiggy";
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
     async function refresh() {
       // Demo is open (empty secret) - still poll. Locked login has no state.
       if (!state && !secret) return;
-      if (editingId !== null) return; // don't clobber an in-progress edit
+      if (editingId !== null || draftEditingId !== null) return; // don't clobber an in-progress edit
       if (currencyBusy) return; // don't overwrite an in-flight currency change
       if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
       try {
@@ -1949,10 +2526,11 @@
       }
     }
 
-    async function postQueuedNow(id, text) {
+    async function postQueuedNow(id, text, media) {
+      const extra = photoNote(media);
       const ok = await confirmDialog({
         title: "Post to X now?",
-        body: text,
+        body: (text || "(photo only)") + (extra ? "\n\n+ " + extra : ""),
         quote: true,
         confirmLabel: "Post now",
       });
@@ -2008,12 +2586,16 @@
     function applyTab() {
       document.getElementById("queue").hidden = activeTab !== "queue";
       document.getElementById("history").hidden = activeTab !== "history";
+      document.getElementById("drafts").hidden = activeTab !== "drafts";
       document.getElementById("tabQueue").classList.toggle("active", activeTab === "queue");
       document.getElementById("tabHistory").classList.toggle("active", activeTab === "history");
+      document.getElementById("tabDrafts").classList.toggle("active", activeTab === "drafts");
       if (state) {
         document.getElementById("tabQueue").textContent = `Queue (${state.queued.length})`;
         const ht = state.historyTotal != null ? state.historyTotal : state.history.length;
         document.getElementById("tabHistory").textContent = `History (${ht})`;
+        const drafts = state.drafts || [];
+        document.getElementById("tabDrafts").textContent = `Drafts (${drafts.length})`;
         // Only toggle shuffle when we have live state (keep cached visibility during boot).
         document.getElementById("shuffleQueue").hidden =
           !(activeTab === "queue" && state.queued.length >= 2);
@@ -2033,6 +2615,11 @@
           } else {
             summary.textContent = "";
           }
+        } else if (activeTab === "drafts") {
+          const sum = drafts.reduce((t, d) => t + (d.cost_usd || 0), 0);
+          summary.textContent = drafts.length
+            ? `${drafts.length} to check · ≈ ${money(sum)} if all go out`
+            : "";
         } else {
           summary.textContent = `${money(state.total_spent_usd)} spent so far · ${state.spent_posts || 0} posted`;
         }
@@ -2040,12 +2627,13 @@
       }
     }
 
-    async function saveEdit(id, text) {
-      if (!text || text.length > MAX_LEN) return;
+    async function saveEdit(id, text, media) {
+      if ((!text && !(media && media.length)) || text.length > MAX_LEN) return;
       try {
-        const res = await api("/api/queue/" + id, { method: "PATCH", body: JSON.stringify({ text }) });
+        const res = await api("/api/queue/" + id, { method: "PATCH", body: JSON.stringify({ text, media }) });
         if (res.ok) {
           editingId = null;
+          activeEditor = null;
           state = res;
           render();
           toast("Updated");
@@ -2066,12 +2654,14 @@
     async function add(immediate) {
       const ta = document.getElementById("text");
       const text = ta.value.trim();
+      const media = composerMedia.filter((m) => !m.pending);
       // Same gate for Queue and Post now - empty or over-limit never fire.
-      if (!text || text.length > MAX_LEN) return;
+      if ((!text && !media.length) || text.length > MAX_LEN || mediaBusy(composerMedia)) return;
       if (immediate) {
+        const extra = photoNote(media);
         const ok = await confirmDialog({
           title: "Post to X now?",
-          body: text,
+          body: (text || "(photo only)") + (extra ? "\n\n+ " + extra : ""),
           quote: true,
           confirmLabel: "Post now",
         });
@@ -2082,11 +2672,14 @@
         const path = immediate ? "/api/post-text" : "/api/queue";
         // Landing composer only: coach on => lightning tag (not bulk/review).
         const payload = { text };
+        if (media.length) payload.media = media.map((m) => m.id);
         if (coachMode() === "on") payload.kind = "lightning";
         const res = await api(path, { method: "POST", body: JSON.stringify(payload) });
         if (res.ok) {
           state = res;
           ta.value = "";
+          composerMedia = [];
+          paintComposerMedia();
           clearCoachPanel();
           render();
           const bolt = payload.kind === "lightning" ? " ⚡" : "";
@@ -2105,18 +2698,21 @@
       const c = document.getElementById("count");
       c.textContent = `${n} / ${MAX_LEN}`;
       c.classList.toggle("over", n > MAX_LEN);
-      const empty = n === 0;
-      const shipOk = !empty && n <= MAX_LEN;
+      const photos = composerMedia.length;
+      const empty = n === 0 && photos === 0;
+      const shipOk = !empty && n <= MAX_LEN && !mediaBusy(composerMedia);
       document.getElementById("add").disabled = !shipOk;
       document.getElementById("postNow").disabled = !shipOk;
 
-      // Live cost estimate: always plain-text unit price; warn if a link is present.
+      // Live cost estimate: plain-text unit price, plus alt text per photo
+      // (photos themselves are free on X); warn if a link is present.
       const costEl = document.getElementById("costEst");
       const link = n > 0 && textHasLink(ta.value);
-      const unit = (state && state.cost_text_usd) || COST_TEXT_USD;
-      costEl.textContent = n === 0
+      const note = photoNote(composerMedia);
+      costEl.textContent = empty
         ? ""
-        : "· " + money(unit) + (link ? " · link (not in est.)" : "");
+        : "· " + money(postCost(composerMedia)) + (note ? " · " + note : "") + (link ? " · link (not in est.)" : "");
+      costEl.title = "X bills about " + money(COST_TEXT_USD) + " per post, photos included. Alt text is +" + money(altUnit()) + " per photo. Links cost much more and are not in this estimate.";
       costEl.classList.toggle("link", link);
 
       scheduleCoach();
@@ -2567,6 +3163,37 @@
     // Queue / History tabs
     document.getElementById("tabQueue").addEventListener("click", () => { activeTab = "queue"; applyTab(); });
     document.getElementById("tabHistory").addEventListener("click", () => { activeTab = "history"; applyTab(); });
+    document.getElementById("tabDrafts").addEventListener("click", () => { activeTab = "drafts"; applyTab(); });
+
+    // Photos in the composer: picker (iPhone: library / camera / files),
+    // paste (screenshots), and drag and drop on desktop.
+    document.getElementById("photoInput").addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = "";
+      addPhotos(files, composerMedia, paintComposerMedia);
+    });
+    document.getElementById("text").addEventListener("paste", (e) => {
+      const files = clipboardImages(e);
+      if (files.length) { e.preventDefault(); addPhotos(files, composerMedia, paintComposerMedia); }
+    });
+    (function initComposerDrop() {
+      const box = document.getElementById("composer");
+      box.addEventListener("dragover", (e) => {
+        if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+          e.preventDefault();
+          box.classList.add("dragover");
+        }
+      });
+      box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("dragover"); });
+      box.addEventListener("drop", (e) => {
+        if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        box.classList.remove("dragover");
+        addPhotos(e.dataTransfer.files, composerMedia, paintComposerMedia);
+      });
+    })();
+    document.getElementById("lightbox").addEventListener("click", closeLightbox);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
     document.getElementById("shuffleQueue").addEventListener("click", randomiseQueue);
 
     // Adapt the hint to the device: mobile has no Shift+Enter, so guide to the button.
