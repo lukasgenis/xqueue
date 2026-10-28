@@ -7,11 +7,11 @@ or paused). Default cadence is **every 6 hours**; default cost display is
 Self-host on Cloudflare Workers + D1 — no always-on server.
 
 This is not a multi-tenant SaaS. **You deploy your own instance** with your own
-X credentials and passphrase.
+X credentials and launch code.
 
 ## Try the demo
 
-Open playground — **no passphrase**, not connected to any real X account:
+Open playground — **no sign-in**, not connected to any real X account:
 
 **https://xqueue-demo.lukas-genis.workers.dev**
 
@@ -85,7 +85,8 @@ features past the daily free pool.
 
 - **Cloudflare Worker** (`src/index.js`) — `/api/*` + cron + static assets from
   `./public`
-- **D1** — queue, settings, auth rate limits, review deck (`schema.sql`)
+- **D1** — queue, settings, photos (until posted, then thumbnails), drafts,
+  review deck, signed-in devices, passkeys, auth rate limits (`schema.sql`)
 - **Cron** — every 15 minutes (`wrangler.toml`); posts only when interval + daily
   cap allow
 - **OAuth 1.0a** — user-context `POST /2/tweets` signed in-Worker (Web Crypto)
@@ -153,7 +154,7 @@ npx wrangler secret put X_ACCESS_TOKEN
 npx wrangler secret put X_ACCESS_SECRET
 ```
 
-### 4. App passphrase
+### 4. Launch code
 
 ```sh
 # long random value, e.g. openssl rand -base64 24
@@ -170,8 +171,9 @@ it as the `x-app-secret` header.
 npx wrangler deploy
 ```
 
-Open the `*.workers.dev` URL Wrangler prints, enter the passphrase, start
-queueing.
+Open the `*.workers.dev` URL Wrangler prints, enter the launch code, start
+queueing. To use Face ID next time, open Settings (gear, top right) → **Add a
+passkey**. Passkeys belong to the hostname, so a new domain needs a new one.
 
 **Optional:** connect the GitHub repo to Cloudflare so pushes to `main`
 auto-deploy. Prefer git push over one-off laptop deploys when you care about
@@ -209,11 +211,24 @@ guard you control.
 
 ## Security
 
-- Production: `APP_SECRET` gates every `/api/*` call — use high entropy (30+
-  random characters is fine)
-- Per-IP rate limit: 10 failed attempts / 15 min → 429
+Sign-in works the same way as AstroPiggy and Peekaboo:
+
+- `APP_SECRET` (the launch code) gates every `/api/*` call. Use high entropy
+  (30+ random characters is fine)
+- Each device types it once at `POST /api/login` and gets its **own** session:
+  an httpOnly, Secure, SameSite=Strict cookie, 30 days sliding. D1 keeps only
+  the token's SHA-256. Nothing secret is stored in the browser
+- **Passkeys** (Face ID / Touch ID) are a front door onto the same session.
+  Verified in plain WebCrypto: single-use challenge, origin, RP ID, user
+  verification, signature, and a counter check
+- Settings lists passkeys and signed-in devices; signing a device out there ends
+  its session wherever it is. **Power down** signs out this one
+- **Too many wrong tries:** 20 failures per IP in 15 minutes → 429 "Too many
+  attempts. Try later." Wrong launch codes, failed passkeys and dead/forged
+  sessions all count against the same budget
+- The `x-app-secret` header still opens every route, for scripts
 - Constant-time secret compare
-- Demo mode (`DEMO=1`) skips the passphrase so the playground stays open
+- Demo mode (`DEMO=1`) skips sign-in so the playground stays open
 - Optional: Cloudflare **Access** on the production hostname for email OTP on top
 - Never commit secrets, `.dev.vars`, or API tokens
 
@@ -234,6 +249,8 @@ curl -X POST localhost:8787/api/post-now -H "x-app-secret: <APP_SECRET>"
 ```
 
 Cron does not fire automatically in local dev the same way as production.
+The session cookie is `Secure`, which Chromium accepts on `http://localhost`;
+Safari may not, so use Chrome (or the header) when testing sign-in locally.
 
 Local open demo without X:
 
@@ -245,26 +262,41 @@ npx wrangler dev
 
 ## API
 
-All routes require the `x-app-secret` header when `APP_SECRET` is set.
-Open demos (`DEMO=1`, no secret) leave the API open.
+When `APP_SECRET` is set, every route needs a signed-in session cookie or the
+`x-app-secret` header, except the sign-in doors below. Open demos (`DEMO=1`,
+no secret) leave the API open.
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/state` | Queue, history, interval, costs, currency, review |
 | POST | `/api/currency` | Display currency `{currency:"EUR"}` |
-| POST | `/api/queue` | Add one post `{text, kind?}` |
+| POST | `/api/login` | Sign this device in `{secret}` (public) |
+| POST | `/api/logout` | Sign this device out (public) |
+| GET | `/api/passkey/available` | Any passkeys? (public, the gate asks) |
+| POST | `/api/passkey/login/start` · `/finish` | Passkey sign-in (public) |
+| GET | `/api/passkey` | Passkeys on this instance |
+| POST | `/api/passkey/register/start` · `/finish` | Add a passkey |
+| POST · DELETE | `/api/passkey/:id/label` · `/api/passkey/:id` | Rename · remove |
+| GET | `/api/devices` | Signed-in devices |
+| POST | `/api/devices/revoke` · `/label` · `/revoke-others` | Sign out · rename · sign out the rest |
+| POST | `/api/media` | Upload a photo (multipart `file`, `thumb?`, `width`, `height`) |
+| GET · PATCH | `/api/media/:id` | Photo (`?v=thumb`) · set alt text `{alt}` |
+| POST | `/api/drafts` | Add drafts `{drafts:[{text, note?, source?, key?, images?:[{data, mime, alt?}]}]}` |
+| PATCH · DELETE | `/api/drafts/:id` | Edit `{text, media?}` · dismiss |
+| POST | `/api/drafts/:id/queue` · `/post` | Queue it · post it now |
+| POST | `/api/queue` | Add one post `{text, kind?, media?}` |
 | POST | `/api/queue/bulk` | Add many `{texts:[]}` |
 | POST | `/api/queue/shuffle` | Randomise queue order |
 | GET | `/api/history` | Older history `?before=` |
 | GET/POST/DELETE | `/api/review…` | Review deck (see source) |
 | POST | `/api/spark/coach` | Writing coach `{text}` |
-| PATCH | `/api/queue/:id` | Edit queued post |
+| PATCH | `/api/queue/:id` | Edit queued post `{text, media?}` |
 | POST | `/api/queue/:id/move` | Reorder `{dir:"up"\|"down"}` |
 | POST | `/api/queue/:id/post-now` | Post that item now |
 | DELETE | `/api/queue/:id` | Remove queued post |
 | POST | `/api/interval` | `{hours}` (0 = paused) |
 | POST | `/api/post-now` | Force-post oldest queued |
-| POST | `/api/post-text` | Post `{text, kind?}` immediately |
+| POST | `/api/post-text` | Post `{text, kind?, media?}` immediately |
 
 ## Secrets (Cloudflare only, never committed)
 
@@ -274,9 +306,9 @@ Open demos (`DEMO=1`, no secret) leave the API open.
 | `X_API_SECRET` | prod | Consumer secret |
 | `X_ACCESS_TOKEN` | prod | User access token |
 | `X_ACCESS_SECRET` | prod | User access secret |
-| `APP_SECRET` | prod | UI passphrase (skip on open demos) |
+| `APP_SECRET` | prod | Launch code (skip on open demos) |
 
-Optional var: `DEMO=1` — mock posting, no X secrets, no passphrase.
+Optional var: `DEMO=1` — mock posting, no X secrets, no sign-in.
 
 ## License
 

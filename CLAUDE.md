@@ -8,10 +8,10 @@ user-facing feature/setup docs.
 A **single-user** X/Twitter post scheduler. Cloudflare **Worker with static
 assets** (NOT Pages) + **D1** + a 15‑minute cron. Self-hosted: each person
 deploys their own instance with their own X OAuth 1.0a credentials and
-`APP_SECRET` passphrase.
+`APP_SECRET` launch code.
 
 Optional **demo mode** (`DEMO=1` var, `wrangler.demo.toml`): fake tweet ids, no
-X secrets, no passphrase (auth skipped), sample queue seed, UI banner. Same
+X secrets, no sign-in (auth skipped), sample queue seed, UI banner. Same
 repo — separate Worker name + D1 only. Do not put demo on a long-lived fork
 branch; it will drift.
 
@@ -55,7 +55,7 @@ branch; it will drift.
   + a 480px thumb, `POST /api/media` (multipart). D1 row cap 2 MB → 1.75 MB max.
   Posting uploads to `POST https://api.x.com/2/media/upload` (multipart,
   OAuth 1.0a, `media_category=tweet_image`), then drops the full file and keeps
-  the thumb for History. Images are behind the passphrase: UI fetches → blob URL.
+  the thumb for History. Images are behind sign-in: UI fetches → blob URL.
   Cron deletes unreferenced images older than 24h
 - **Drafts tab:** `drafts` table, suggestions to check (AstroPiggy). Ingest
   `POST /api/drafts` `{ drafts: [{ text, note, source, key, images: [{ data
