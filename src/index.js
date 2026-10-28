@@ -78,7 +78,14 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
-      return handleApi(request, env, ctx, url);
+      // Sign-in routes queue Set-Cookie lines here; they ride on whatever
+      // response the route returns.
+      const rc = { cookies: [], deviceId: null };
+      const res = await handleApi(request, env, ctx, url, rc);
+      if (!rc.cookies.length) return res;
+      const out = new Response(res.body, res);
+      for (const c of rc.cookies) out.headers.append("Set-Cookie", c);
+      return out;
     }
 
     // Everything else is a static asset (index.html, favicon, etc.).
@@ -96,20 +103,30 @@ export default {
 // API
 // ---------------------------------------------------------------------------
 
-async function handleApi(request, env, ctx, url) {
+async function handleApi(request, env, ctx, url, rc) {
   if (!env.DB) return json({ ok: false, error: "Database not wired up." }, 500);
 
-  // Shared-secret gate with per-IP rate limiting. The passphrase should still be
-  // long & random — this is defense-in-depth, not a substitute for entropy.
-  // Public DEMO instances stay open (no passphrase) so people can click around.
+  // Sign-in, the AstroPiggy way: the launch code once per device, or a passkey.
+  // These doors are public (they ARE the way in); everything below is gated.
+  try {
+    const open = await handlePublicAuth(request, env, url, rc);
+    if (open) return open;
+  } catch (err) {
+    return json({ ok: false, error: String(err && err.message ? err.message : err) }, 500);
+  }
+
+  // Public DEMO instances stay open (no launch code) so people can click around.
   if (env.APP_SECRET && !isDemo(env)) {
-    const gate = await checkAuth(request, env);
+    const gate = await requireAuth(request, env, rc);
     if (!gate.ok) return json({ ok: false, error: gate.error }, gate.status);
   }
 
   try {
     const { pathname } = url;
     const method = request.method;
+
+    const signedIn = await handleSignedInAuth(request, env, url, rc);
+    if (signedIn) return signedIn;
 
     if (pathname === "/api/state" && method === "GET") {
       return json({ ok: true, ...(await getState(env, request)) });
@@ -2907,32 +2924,525 @@ async function hmacSha1(key, message) {
 
 // ---------------------------------------------------------------------------
 
-// Auth gate: locks out an IP after too many failed passphrase attempts in a
-// sliding window, then constant-time compares the provided secret.
+// ---------------------------------------------------------------------------
+// Sign-in: copied from AstroPiggy (src/auth.ts, devices.ts, passkeys.ts and the
+// /api/login, /api/passkey/*, /api/devices/* routes) so all three apps behave the
+// same. One launch code (xqueue's own APP_SECRET), typed once per device; each sign-in mints that device its own session cookie, and D1
+// keeps only the token's SHA-256, so signing a row out in Settings ends that
+// device wherever it is. Passkeys (Face ID) are a front door onto the same
+// session. The x-app-secret header still opens everything, for scripts.
+// ---------------------------------------------------------------------------
+
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
-const AUTH_MAX_FAILS = 10;
+const AUTH_MAX_FAILS = 20;
+const SESSION_COOKIE = "xq_session";
+/** Sliding: the cookie and the row both live 30 days past the device's last visit. */
+const SESSION_TTL = 30 * DAY_MS;
+/** `last_used_at` is written at most this often, to keep D1 writes off every request. */
+const SESSION_TOUCH_EVERY = 5 * 60 * 1000;
+/** The cookie's Max-Age is renewed at most daily. */
+const SESSION_REFRESH_EVERY = DAY_MS;
+const DEVICE_LABEL_MAX = 48;
 
-async function checkAuth(request, env) {
-  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  const now = Date.now();
+let authSchemaReady = false;
 
+async function ensureAuthSchema(env) {
+  if (authSchemaReady) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS webauthn_credentials (" +
+        "id TEXT PRIMARY KEY, public_key TEXT NOT NULL, alg INTEGER NOT NULL, " +
+        "sign_count INTEGER NOT NULL DEFAULT 0, label TEXT NOT NULL DEFAULT '', transports TEXT, " +
+        "created_at INTEGER NOT NULL, last_used_at INTEGER)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS device_sessions (" +
+        "id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, label TEXT NOT NULL DEFAULT '', " +
+        "created_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, cookie_at INTEGER NOT NULL, " +
+        "custom_label TEXT, city TEXT)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS webauthn_challenges (" +
+        "challenge TEXT PRIMARY KEY, purpose TEXT NOT NULL, expires_at INTEGER NOT NULL)"
+    ),
+  ]);
+  authSchemaReady = true;
+}
+
+async function tooManyAttempts(request, env) {
   const row = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM auth_attempts WHERE ip = ?1 AND ts > ?2"
   )
-    .bind(ip, now - AUTH_WINDOW_MS)
+    .bind(clientIp(request), Date.now() - AUTH_WINDOW_MS)
     .first();
-  if (row && row.n >= AUTH_MAX_FAILS) {
-    return { ok: false, status: 429, error: "Too many attempts. Try again in a few minutes." };
+  return ((row && row.n) || 0) >= AUTH_MAX_FAILS;
+}
+
+/** Record a rejected credential. Never throws: a full table must not 500 a login. */
+async function recordAuthFailure(request, env) {
+  try {
+    await env.DB.prepare("INSERT INTO auth_attempts (ip, ts) VALUES (?1, ?2)")
+      .bind(clientIp(request), Date.now())
+      .run();
+  } catch (_) {
+    /* bookkeeping only */
+  }
+}
+
+const TOO_MANY = { ok: false, status: 429, error: "Too many attempts. Try later." };
+
+/**
+ * Two ways through: the `x-app-secret` header (scripts), or this device's
+ * session cookie (every browser).
+ */
+async function requireAuth(request, env, rc, now = Date.now()) {
+  if (await tooManyAttempts(request, env)) return TOO_MANY;
+  const header = request.headers.get("x-app-secret");
+  if (header && timingSafeEqual(header, env.APP_SECRET)) return { ok: true };
+  await ensureAuthSchema(env);
+  const device = await currentDevice(request, env, rc, now);
+  if (device) {
+    rc.deviceId = device.id;
+    return { ok: true };
+  }
+  await recordAuthFailure(request, env);
+  return { ok: false, status: 401, error: "Unauthorized" };
+}
+
+function getCookie(request, name) {
+  const raw = request.headers.get("Cookie") || "";
+  for (const part of raw.split(/;\s*/)) {
+    const i = part.indexOf("=");
+    if (i > 0 && part.slice(0, i) === name) return decodeURIComponent(part.slice(i + 1));
+  }
+  return null;
+}
+
+function sessionCookie(token, maxAgeSec) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+async function sha256Hex(text) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Where a request came from, per Cloudflare: "Sydney, AU", or just "AU". */
+function requestPlace(request) {
+  const cf = request.cf;
+  if (!cf || !cf.country) return null;
+  return cf.city ? `${cf.city}, ${cf.country}` : cf.country;
+}
+
+/** "iPhone · Safari", "Mac · Chrome": enough to tell the rows apart in Settings. */
+function deviceLabel(ua) {
+  const s = ua || "";
+  const dev = /iPhone/.test(s) ? "iPhone"
+    : /iPad/.test(s) ? "iPad"
+    : /Android/.test(s) ? "Android"
+    : /Mac OS X|Macintosh/.test(s) ? "Mac"
+    : /Windows/.test(s) ? "Windows"
+    : /Linux/.test(s) ? "Linux"
+    : "Device";
+  const br = /Edg\//.test(s) ? "Edge"
+    : /CriOS|Chrome/.test(s) ? "Chrome"
+    : /FxiOS|Firefox/.test(s) ? "Firefox"
+    : /Safari/.test(s) ? "Safari"
+    : "";
+  return br ? `${dev} · ${br}` : dev;
+}
+
+/** Sign this device in: a new row, a new token, the cookie set. */
+async function startDeviceSession(request, env, rc, now = Date.now()) {
+  const token = bytesToB64u(crypto.getRandomValues(new Uint8Array(32)));
+  const id = bytesToB64u(crypto.getRandomValues(new Uint8Array(12)));
+  await env.DB.prepare(
+    "INSERT INTO device_sessions (id, token_hash, label, created_at, last_used_at, cookie_at, city) " +
+      "VALUES (?1, ?2, ?3, ?4, ?4, ?4, ?5)"
+  )
+    .bind(id, await sha256Hex(token), deviceLabel(request.headers.get("user-agent")), now, requestPlace(request))
+    .run();
+  rc.cookies.push(sessionCookie(token, SESSION_TTL / 1000));
+  return id;
+}
+
+/**
+ * The device behind this request's cookie, or null. Keeps the session alive
+ * while it is used (row and cookie both slide), and forgets one left unused
+ * past its 30 days.
+ */
+async function currentDevice(request, env, rc, now = Date.now()) {
+  const token = getCookie(request, SESSION_COOKIE);
+  if (!token) return null;
+  const row = await env.DB.prepare(
+    "SELECT id, label, created_at, last_used_at, cookie_at FROM device_sessions WHERE token_hash = ?1"
+  )
+    .bind(await sha256Hex(token))
+    .first();
+  if (!row) return null;
+  if (now - row.last_used_at > SESSION_TTL) {
+    await env.DB.prepare("DELETE FROM device_sessions WHERE id = ?1").bind(row.id).run();
+    return null;
+  }
+  if (now - row.cookie_at > SESSION_REFRESH_EVERY) {
+    await env.DB.prepare("UPDATE device_sessions SET last_used_at = ?2, cookie_at = ?2 WHERE id = ?1")
+      .bind(row.id, now)
+      .run();
+    rc.cookies.push(sessionCookie(token, SESSION_TTL / 1000));
+  } else if (now - row.last_used_at > SESSION_TOUCH_EVERY) {
+    await env.DB.prepare("UPDATE device_sessions SET last_used_at = ?2 WHERE id = ?1").bind(row.id, now).run();
+  }
+  return row;
+}
+
+async function listDevices(env, rc) {
+  const rows = (
+    await env.DB.prepare(
+      "SELECT id, label, custom_label, city, created_at, last_used_at FROM device_sessions ORDER BY last_used_at DESC"
+    ).all()
+  ).results;
+  return rows.map((r) => ({
+    id: r.id,
+    label: r.custom_label || r.label,
+    autoLabel: r.label,
+    city: r.city,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+    current: r.id === rc.deviceId,
+  }));
+}
+
+// WebAuthn (passkey) verification in plain WebCrypto, as AstroPiggy: the browser
+// hands over SPKI (getPublicKey) and raw authenticator data, so no CBOR. Every
+// check that makes the signature mean anything still runs: single-use
+// server-issued challenge, origin, RP ID hash, user presence + verification,
+// and the signature itself.
+
+function b64uToBytes(str) {
+  const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+  const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToB64u(input) {
+  const b = input instanceof Uint8Array ? input : new Uint8Array(input);
+  let str = "";
+  for (let i = 0; i < b.length; i++) str += String.fromCharCode(b[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function sha256Bytes(data) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+}
+
+/** WebAuthn ES256 signatures are DER; WebCrypto wants raw r||s, 32 bytes each. */
+function derToRawEcdsa(der) {
+  if (der[0] !== 0x30) throw new Error("Bad ECDSA signature: not a DER sequence.");
+  let i = 2;
+  if (der[1] & 0x80) i = 2 + (der[1] & 0x7f);
+  const read = () => {
+    if (der[i] !== 0x02) throw new Error("Bad ECDSA signature: expected INTEGER.");
+    const len = der[i + 1];
+    let v = der.subarray(i + 2, i + 2 + len);
+    i += 2 + len;
+    while (v.length > 32 && v[0] === 0x00) v = v.subarray(1);
+    const p = new Uint8Array(32);
+    p.set(v, 32 - v.length);
+    return p;
+  };
+  const r = read();
+  const sig = read();
+  const out = new Uint8Array(64);
+  out.set(r, 0);
+  out.set(sig, 32);
+  return out;
+}
+
+function checkClientData(clientDataJSON, want) {
+  const cd = JSON.parse(new TextDecoder().decode(b64uToBytes(clientDataJSON)));
+  if (cd.type !== want.type) throw new Error(`Wrong ceremony type: ${cd.type}`);
+  if (cd.challenge !== want.challenge) throw new Error("Challenge mismatch.");
+  if (cd.origin !== want.origin) throw new Error(`Wrong origin: ${cd.origin}`);
+}
+
+async function checkAuthenticatorData(authData, rpId) {
+  if (authData.length < 37) throw new Error("Authenticator data too short.");
+  const rpIdHash = authData.subarray(0, 32);
+  const expected = await sha256Bytes(new TextEncoder().encode(rpId));
+  if (!rpIdHash.every((b, i) => b === expected[i])) throw new Error("RP ID hash mismatch.");
+  const flags = authData[32];
+  if (!(flags & 0x01)) throw new Error("User presence flag not set.");
+  if (!(flags & 0x04)) throw new Error("User verification flag not set.");
+  const signCount = (authData[33] << 24) | (authData[34] << 16) | (authData[35] << 8) | authData[36];
+  return { signCount: signCount >>> 0 };
+}
+
+async function verifySignature(spkiB64u, alg, authData, clientDataJSON, signatureB64u) {
+  const clientHash = await sha256Bytes(b64uToBytes(clientDataJSON));
+  const signed = new Uint8Array(authData.length + clientHash.length);
+  signed.set(authData, 0);
+  signed.set(clientHash, authData.length);
+  const spki = b64uToBytes(spkiB64u);
+  const sig = b64uToBytes(signatureB64u);
+  if (alg === -257) {
+    const key = await crypto.subtle.importKey("spki", spki, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, signed);
+  }
+  const key = await crypto.subtle.importKey("spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, derToRawEcdsa(sig), signed);
+}
+
+function randomChallenge() {
+  return bytesToB64u(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+/** The doors that must answer before anyone is signed in. Null = not one of them. */
+async function handlePublicAuth(request, env, url, rc) {
+  const { pathname } = url;
+  const method = request.method;
+
+  // The launch code, and the only place anyone is invited to guess it.
+  if (pathname === "/api/login" && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const secret = String((body && body.secret) || "");
+    if (!env.APP_SECRET) return json({ ok: false, error: "APP_SECRET is not configured." }, 500);
+    if (await tooManyAttempts(request, env)) return json(TOO_MANY, 429);
+    if (!secret || !timingSafeEqual(secret, env.APP_SECRET)) {
+      await recordAuthFailure(request, env);
+      return json({ ok: false, error: "Incorrect launch code" }, 401);
+    }
+    await ensureAuthSchema(env);
+    await startDeviceSession(request, env, rc);
+    return json({ ok: true });
   }
 
-  const provided = request.headers.get("x-app-secret") || "";
-  if (!timingSafeEqual(provided, env.APP_SECRET)) {
-    await env.DB.prepare("INSERT INTO auth_attempts (ip, ts) VALUES (?1, ?2)")
-      .bind(ip, now)
-      .run();
-    return { ok: false, status: 401, error: "Incorrect passphrase." };
+  // Public, so a device whose session was already revoked can still clear its cookie.
+  if (pathname === "/api/logout" && method === "POST") {
+    await ensureAuthSchema(env);
+    const token = getCookie(request, SESSION_COOKIE);
+    if (token) {
+      await env.DB.prepare("DELETE FROM device_sessions WHERE token_hash = ?1").bind(await sha256Hex(token)).run();
+    }
+    rc.cookies.push(sessionCookie("", 0));
+    return json({ ok: true });
   }
-  return { ok: true };
+
+  // Does this app have any passkeys at all? The gate asks before offering Face ID.
+  if (pathname === "/api/passkey/available" && method === "GET") {
+    await ensureAuthSchema(env);
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM webauthn_credentials").first();
+    return json({ ok: true, any: ((row && row.n) || 0) > 0 });
+  }
+
+  if (pathname === "/api/passkey/login/start" && method === "POST") {
+    await ensureAuthSchema(env);
+    const now = Date.now();
+    await env.DB.prepare("DELETE FROM webauthn_challenges WHERE expires_at < ?1").bind(now).run();
+    const creds = (await env.DB.prepare("SELECT id, transports FROM webauthn_credentials").all()).results;
+    if (!creds.length) return json({ ok: false, error: "No passkeys registered yet." }, 404);
+    const challenge = randomChallenge();
+    await env.DB.prepare(
+      "INSERT INTO webauthn_challenges (challenge, purpose, expires_at) VALUES (?1, 'login', ?2)"
+    )
+      .bind(challenge, now + 5 * 60 * 1000)
+      .run();
+    // Naming the credential with its transports is what skips the "where is it?"
+    // chooser and goes straight to Face ID.
+    return json({
+      ok: true,
+      challenge,
+      rpId: url.hostname,
+      userVerification: "required",
+      allowCredentials: creds.map((r) => {
+        let t = [];
+        try { t = r.transports ? JSON.parse(r.transports) : []; } catch (_) { t = []; }
+        return { type: "public-key", id: r.id, transports: t.length ? t : ["internal"] };
+      }),
+    });
+  }
+
+  if (pathname === "/api/passkey/login/finish" && method === "POST") {
+    await ensureAuthSchema(env);
+    const body = await request.json().catch(() => ({}));
+    if (!body.id || !body.authenticatorData || !body.clientDataJSON || !body.signature) {
+      return json({ ok: false, error: "Incomplete assertion." }, 400);
+    }
+    if (!env.APP_SECRET) return json({ ok: false, error: "APP_SECRET is not configured." }, 500);
+    // Same per-IP budget as the launch code: a rejected assertion counts like one.
+    if (await tooManyAttempts(request, env)) return json(TOO_MANY, 429);
+    const reject = async (error) => {
+      await recordAuthFailure(request, env);
+      return json({ ok: false, error }, 401);
+    };
+    const cred = await env.DB.prepare(
+      "SELECT id, public_key, alg, sign_count FROM webauthn_credentials WHERE id = ?1"
+    )
+      .bind(body.id)
+      .first();
+    if (!cred) return reject("Unknown passkey.");
+    try {
+      const cd = JSON.parse(new TextDecoder().decode(b64uToBytes(body.clientDataJSON)));
+      // Whoever deletes the challenge row is the one that gets to use it.
+      const used = await env.DB.prepare(
+        "DELETE FROM webauthn_challenges WHERE challenge = ?1 AND purpose = 'login' AND expires_at > ?2"
+      )
+        .bind(cd.challenge || "", Date.now())
+        .run();
+      if (!used.meta.changes) return reject("Challenge expired or already used.");
+      checkClientData(body.clientDataJSON, { type: "webauthn.get", challenge: cd.challenge || "", origin: url.origin });
+      const authData = b64uToBytes(body.authenticatorData);
+      const { signCount } = await checkAuthenticatorData(authData, url.hostname);
+      const ok = await verifySignature(cred.public_key, cred.alg, authData, body.clientDataJSON, body.signature);
+      if (!ok) return reject("Signature did not verify.");
+      // A counter going backwards is the cloned-authenticator signal. Apple
+      // passkeys sync and report 0 throughout, so only a real decrease counts.
+      if (signCount > 0 && cred.sign_count > 0 && signCount <= cred.sign_count) {
+        return reject("Passkey counter went backwards; refusing.");
+      }
+      await env.DB.prepare("UPDATE webauthn_credentials SET sign_count = ?2, last_used_at = ?3 WHERE id = ?1")
+        .bind(cred.id, signCount, Date.now())
+        .run();
+    } catch (err) {
+      return reject(String((err && err.message) || err));
+    }
+    await startDeviceSession(request, env, rc);
+    return json({ ok: true });
+  }
+
+  return null;
+}
+
+/** Settings: passkeys and signed-in devices. Behind the gate. Null = not one of them. */
+async function handleSignedInAuth(request, env, url, rc) {
+  const { pathname } = url;
+  const method = request.method;
+  if (!pathname.startsWith("/api/devices") && !pathname.startsWith("/api/passkey")) return null;
+  await ensureAuthSchema(env);
+
+  if (pathname === "/api/devices" && method === "GET") {
+    return json({ ok: true, devices: await listDevices(env, rc) });
+  }
+  if (pathname === "/api/devices/revoke" && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!body.id) return json({ ok: false, error: "Which device?" }, 400);
+    await env.DB.prepare("DELETE FROM device_sessions WHERE id = ?1").bind(body.id).run();
+    return json({ ok: true, devices: await listDevices(env, rc) });
+  }
+  // Name a device. Empty goes back to the automatic label.
+  if (pathname === "/api/devices/label" && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!body.id) return json({ ok: false, error: "Which device?" }, 400);
+    const label = String(body.label == null ? "" : body.label).trim().slice(0, DEVICE_LABEL_MAX);
+    await env.DB.prepare("UPDATE device_sessions SET custom_label = ?2 WHERE id = ?1").bind(body.id, label || null).run();
+    return json({ ok: true, devices: await listDevices(env, rc) });
+  }
+  // Everything but the device asking (from the header secret: all of them).
+  if (pathname === "/api/devices/revoke-others" && method === "POST") {
+    await env.DB.prepare("DELETE FROM device_sessions WHERE id != ?1").bind(rc.deviceId || "").run();
+    return json({ ok: true, devices: await listDevices(env, rc) });
+  }
+
+  if (pathname === "/api/passkey" && method === "GET") {
+    const rows = (
+      await env.DB.prepare(
+        "SELECT id, label, created_at, last_used_at FROM webauthn_credentials ORDER BY created_at DESC"
+      ).all()
+    ).results;
+    return json({
+      ok: true,
+      rpId: url.hostname,
+      passkeys: rows.map((r) => ({ id: r.id, label: r.label, createdAt: r.created_at, lastUsedAt: r.last_used_at })),
+    });
+  }
+
+  // Enrolment is only reachable signed in: that session is what authorises a new passkey.
+  if (pathname === "/api/passkey/register/start" && method === "POST") {
+    const now = Date.now();
+    await env.DB.prepare("DELETE FROM webauthn_challenges WHERE expires_at < ?1").bind(now).run();
+    const challenge = randomChallenge();
+    await env.DB.prepare(
+      "INSERT INTO webauthn_challenges (challenge, purpose, expires_at) VALUES (?1, 'register', ?2)"
+    )
+      .bind(challenge, now + 5 * 60 * 1000)
+      .run();
+    const existing = (await env.DB.prepare("SELECT id FROM webauthn_credentials").all()).results;
+    return json({
+      ok: true,
+      challenge,
+      rpId: url.hostname,
+      rpName: "xqueue",
+      // One stable user handle, so every passkey lands under the same keychain entry.
+      userId: bytesToB64u(new TextEncoder().encode("xqueue-owner")),
+      userName: "xqueue",
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { residentKey: "required", requireResidentKey: true, userVerification: "required" },
+      excludeCredentials: existing.map((r) => ({ type: "public-key", id: r.id })),
+    });
+  }
+
+  if (pathname === "/api/passkey/register/finish" && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!body.id || !body.publicKey || !body.authenticatorData || !body.clientDataJSON) {
+      return json({ ok: false, error: "Incomplete registration." }, 400);
+    }
+    try {
+      const cd = JSON.parse(new TextDecoder().decode(b64uToBytes(body.clientDataJSON)));
+      const used = await env.DB.prepare(
+        "DELETE FROM webauthn_challenges WHERE challenge = ?1 AND purpose = 'register' AND expires_at > ?2"
+      )
+        .bind(cd.challenge || "", Date.now())
+        .run();
+      if (!used.meta.changes) return json({ ok: false, error: "Challenge expired or already used." }, 400);
+      checkClientData(body.clientDataJSON, { type: "webauthn.create", challenge: cd.challenge || "", origin: url.origin });
+      await checkAuthenticatorData(b64uToBytes(body.authenticatorData), url.hostname);
+      // Import once now rather than discover at first sign-in it never worked.
+      const alg = body.alg === -257 ? -257 : -7;
+      await crypto.subtle.importKey(
+        "spki",
+        b64uToBytes(body.publicKey),
+        alg === -257 ? { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } : { name: "ECDSA", namedCurve: "P-256" },
+        false,
+        ["verify"]
+      );
+      await env.DB.prepare(
+        "INSERT INTO webauthn_credentials (id, public_key, alg, sign_count, label, transports, created_at) " +
+          "VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6) " +
+          "ON CONFLICT(id) DO UPDATE SET public_key = excluded.public_key, alg = excluded.alg, transports = excluded.transports"
+      )
+        .bind(
+          body.id,
+          body.publicKey,
+          alg,
+          String(body.label || "").slice(0, 48),
+          JSON.stringify(Array.isArray(body.transports) ? body.transports : []),
+          Date.now()
+        )
+        .run();
+    } catch (err) {
+      return json({ ok: false, error: String((err && err.message) || err) }, 400);
+    }
+    return json({ ok: true });
+  }
+
+  const pkLabel = pathname.match(/^\/api\/passkey\/([^/]+)\/label$/);
+  if (pkLabel && method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    await env.DB.prepare("UPDATE webauthn_credentials SET label = ?2 WHERE id = ?1")
+      .bind(decodeURIComponent(pkLabel[1]), String(body.label || "").slice(0, 48))
+      .run();
+    return json({ ok: true });
+  }
+
+  // Removing the last passkey is fine: the launch code still works.
+  const pkItem = pathname.match(/^\/api\/passkey\/([^/]+)$/);
+  if (pkItem && method === "DELETE") {
+    await env.DB.prepare("DELETE FROM webauthn_credentials WHERE id = ?1").bind(decodeURIComponent(pkItem[1])).run();
+    return json({ ok: true });
+  }
+
+  return null;
 }
 
 // Heuristic: does a post look like it contains a URL? Used only for UI warnings.

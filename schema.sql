@@ -123,3 +123,33 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts (status, created_at);
+
+-- Sign-in, copied from AstroPiggy: one row per signed-in device (only the
+-- token's SHA-256 is kept; deleting a row signs that device out) and passkeys.
+CREATE TABLE IF NOT EXISTS device_sessions (
+  id           TEXT PRIMARY KEY,
+  token_hash   TEXT NOT NULL UNIQUE,
+  label        TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL,
+  cookie_at    INTEGER NOT NULL,
+  custom_label TEXT,                             -- a name given in Settings
+  city         TEXT                              -- "Melbourne, AU" per Cloudflare
+);
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id           TEXT PRIMARY KEY,
+  public_key   TEXT NOT NULL,                    -- SPKI, base64url
+  alg          INTEGER NOT NULL,                 -- -7 ES256 | -257 RS256
+  sign_count   INTEGER NOT NULL DEFAULT 0,
+  label        TEXT NOT NULL DEFAULT '',
+  transports   TEXT,
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+  challenge  TEXT PRIMARY KEY,
+  purpose    TEXT NOT NULL,                      -- login | register
+  expires_at INTEGER NOT NULL
+);

@@ -81,29 +81,6 @@
       padding-right: calc(16px + env(safe-area-inset-right, 0px));
     }
 
-    .login-overlay {
-      position: fixed; inset: 0; z-index: 50;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--bg); padding: 24px;
-      padding-top: calc(24px + env(safe-area-inset-top, 0px));
-      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    }
-    /* The display:flex above would otherwise override the [hidden] attribute,
-       leaving the overlay stuck on screen after a successful unlock. */
-    .login-overlay[hidden] { display: none; }
-    .login-box {
-      width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px;
-      background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 28px 24px;
-    }
-    .login-box h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
-    .login-sub { margin: 0; color: var(--muted); font-size: 13px; }
-    .login-box input {
-      width: 100%; padding: 12px 14px; border-radius: 10px;
-      background: var(--panel-2); border: 1px solid var(--border); color: var(--text); outline: none;
-    }
-    .login-box input:focus { border-color: var(--accent-dim); }
-    .login-box button { width: 100%; padding: 12px; }
-    .login-error { margin: 0; color: var(--danger); font-size: 13px; min-height: 1em; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: -0.02em; }
     /* Wordmark: Space Grotesk Bold, white. */
@@ -138,12 +115,12 @@
     html.booting header .usage:empty::after {
       content: "–/– posted (24h)";
     }
-    html.booting #lockBtn {
+    html.booting #open-admin {
       visibility: hidden;
       pointer-events: none;
     }
-    /* After ready: demo never shows Lock. */
-    html.ready.demo #lockBtn {
+    /* Demo has no sign-in, so no Settings either. */
+    html.ready.demo #open-admin {
       display: none !important;
     }
     /* Phones: one row — logo, compact 12/17, currency, Lock.
@@ -256,8 +233,7 @@
        the rounded cap — worst for GBP's G. Shared width keeps both chips
        even and leaves the code off the curve. */
     .header-right .picker { gap: 6px; flex: 0 0 auto; }
-    .header-right .picker-btn,
-    .header-right .lockbtn {
+    .header-right .picker-btn {
       box-sizing: border-box;
       -webkit-appearance: none;
       appearance: none;
@@ -873,7 +849,7 @@
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .modal-overlay {
-      position: fixed; inset: 0; z-index: 60;
+      position: fixed; inset: 0; z-index: 80; /* above the Settings drawer (75) */
       display: flex; align-items: center; justify-content: center;
       background: rgba(0, 0, 0, 0.55); padding: 24px;
       padding-top: calc(24px + env(safe-area-inset-top, 0px));
@@ -964,19 +940,382 @@
       .draft-actions button { flex: 1 1 0; padding: 9px 6px; font-size: 14px; min-height: 40px; }
       .tab { padding: 9px 10px; font-size: 14px; }
     }
+
+    /* ==== Sign-in + Settings: copied from AstroPiggy (app.css) so xqueue,
+       AstroPiggy and Peekaboo look and work the same. AstroPiggy's dark tokens,
+       scoped to these pieces so the rest of xqueue keeps its own palette. ==== */
+    #gate, .drawer, .scrim, .icon-btn, #crt-beam, #crt-void {
+      --font-ap: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --radius: 15px;
+      --radius-lg: 20px;
+      --ease: cubic-bezier(.22, .61, .36, 1);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --bg: #0f1216;
+      --paper: #171b21;
+      --ink: #e8eaed;
+      --mute: #8b929c;
+      --line: #262c34;
+      --accent: #6aa3e8;
+      --sage: #6f9e8a;
+      --rose: #c97a7a;
+      --hover: #222830;
+      --btn: #e8eaed;
+      --btn-ink: #14171b;
+      --card-top: rgba(255, 255, 255, .05);
+      --card-bot: rgba(255, 255, 255, 0);
+      --shadow-0: inset 0 1px 0 rgba(255, 255, 255, .04), 0 1px 2px rgba(0, 0, 0, .28);
+      --shadow-1: inset 0 1px 0 rgba(255, 255, 255, .05), 0 1px 2px rgba(0, 0, 0, .30), 0 6px 18px -8px rgba(0, 0, 0, .55);
+      --shadow-2: inset 0 1px 0 rgba(255, 255, 255, .07), 0 2px 6px rgba(0, 0, 0, .34), 0 26px 52px -18px rgba(0, 0, 0, .70);
+    }
+    #gate, .drawer { font-family: var(--font-ap); font-optical-sizing: auto; color: var(--ink); line-height: 1.45; }
+    html.drawer-open, html.drawer-open body { overflow: hidden; }
+    /* Signed out: the login screen from the first paint, nothing behind it. */
+    #gate { display: none; }
+    html[data-guest="1"] #gate { display: flex; }
+    html[data-guest="1"] .wrap { display: none; }
+    html[data-guest="1"], html[data-guest="1"] body { overflow: hidden; background: #0f1216; }
+    #gate {
+      position: fixed; inset: 0; z-index: 90;
+      background: var(--bg);
+      height: 100dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: max(32px, calc(env(safe-area-inset-top) + 24px)) max(16px, env(safe-area-inset-right))
+               max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    #gate, #gate * { -webkit-tap-highlight-color: transparent; }
+    .gate-stack { margin: auto; display: grid; justify-items: center; width: min(340px, 100%); }
+    .vault {
+      width: min(340px, 100%);
+      background: linear-gradient(180deg, var(--card-top), var(--card-bot)), var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-2);
+      padding: 34px 26px 26px;
+      text-align: center;
+    }
+    .vault h1 { margin: 0 0 18px; font-size: 34px; }
+    .vault form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .vault input {
+      width: 100%; min-width: 0;
+      background: var(--bg); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 11px 12px; outline: none;
+      font: inherit; font-size: 16px; /* 16px minimum, or iOS zooms the page on focus */
+      text-align: center;
+    }
+    .vault input[type="password"]:not(:placeholder-shown) { letter-spacing: .2em; text-indent: .2em; }
+    .vault input:focus { border-color: var(--accent); }
+    .vault input:-webkit-autofill,
+    .vault input:-webkit-autofill:hover,
+    .vault input:-webkit-autofill:focus,
+    .vault input:-webkit-autofill:active {
+      -webkit-box-shadow: 0 0 0 100px var(--bg) inset;
+              box-shadow: 0 0 0 100px var(--bg) inset;
+      -webkit-text-fill-color: var(--ink);
+      caret-color: var(--ink);
+    }
+    .vault .err { color: var(--rose); margin: 8px 0 0; font-size: 13px; line-height: 1.45; min-height: 1.45em; }
+    @media (max-width: 480px) {
+      .vault { width: min(312px, 100%); padding: 26px 20px 20px; border-radius: var(--radius); }
+      .vault input { padding: 10px 12px; }
+      .vault .err { font-size: 12.5px; }
+    }
+    .btn {
+      font: inherit;
+      background: var(--btn);
+      color: var(--btn-ink);
+      border: 0;
+      border-radius: 11px;
+      padding: 11px 14px;
+      font-weight: 550;
+      box-shadow: var(--shadow-1);
+      cursor: pointer;
+      transition: background-color .16s var(--ease), color .16s var(--ease),
+        box-shadow .16s var(--ease), transform .12s var(--ease), filter .16s var(--ease);
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn.secondary { background: var(--hover); color: var(--ink); }
+    .icon-btn {
+      width: 36px; height: 36px; min-width: 36px; flex: 0 0 36px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      color: var(--mute);
+      line-height: 1;
+      padding: 0;
+      background: linear-gradient(180deg, var(--card-top), var(--card-bot)), var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      box-shadow: var(--shadow-0);
+      transition: background-color .16s var(--ease), color .16s var(--ease),
+        border-color .16s var(--ease), box-shadow .16s var(--ease), transform .12s var(--ease);
+    }
+    .icon-btn .ico { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 18px; height: 18px; display: block; }
+    .icon-btn:active, .btn:active:not(:disabled) { transform: translateY(1px) scale(.985); }
+    @media (hover: hover) {
+      .icon-btn:hover {
+        background: var(--hover);
+        color: var(--ink);
+        border-color: color-mix(in srgb, var(--line) 60%, var(--mute));
+        transform: translateY(-1px);
+      }
+      .btn:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--btn) 88%, var(--btn-ink));
+        box-shadow: var(--shadow-2);
+        translate: 0 -1px;
+      }
+      .btn.secondary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--hover) 70%, var(--ink) 16%);
+        color: var(--ink);
+      }
+    }
+    .drawer :where(a, button, input):focus-visible, #gate :where(a, button, input):focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+      outline-offset: 2px;
+    }
+    .scrim {
+      position: fixed; inset: 0; z-index: 70;
+      background: rgb(0 0 0 / 0.4);
+      opacity: 0; pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .scrim.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: min(380px, 100%);
+      background: var(--paper);
+      border-left: 1px solid var(--line);
+      padding: 20px;
+      padding-top: max(20px, calc(env(safe-area-inset-top) + 24px));
+      padding-bottom: max(20px, env(safe-area-inset-bottom));
+      padding-right: max(20px, env(safe-area-inset-right));
+      transform: translateX(110%);
+      transition: transform .18s ease;
+      z-index: 75;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      font-size: 15px;
+    }
+    .drawer.open { transform: none; }
+    .drawer-top { display: flex; align-items: center; justify-content: space-between; }
+    .drawer h2 { margin: 0; font-weight: 600; font-size: 18px; letter-spacing: -0.03em; }
+    .note { color: var(--mute); font-size: 13px; margin: 12px 0 6px; }
+    .actions { display: grid; gap: 8px; margin-top: 14px; }
+    .pk-hint { margin-top: -2px; line-height: 1.4; }
+    .pk-list { display: grid; gap: 6px; margin-top: 8px; }
+    .pk-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 11px;
+      border: 1px solid var(--line); border-radius: 11px;
+      background: linear-gradient(180deg, var(--card-top), var(--card-bot)), var(--paper);
+    }
+    .pk-row .pk-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pk-row .pk-meta { font-size: 11.5px; color: var(--mute); white-space: nowrap; }
+    .pk-row .pk-act, .dev-row .pk-act {
+      font: inherit; background: none; border: 0; padding: 4px 6px; cursor: pointer;
+      color: var(--mute); font-size: 12px; font-weight: 550;
+      border-radius: 7px; transition: color .14s var(--ease), background-color .14s var(--ease);
+    }
+    @media (hover: hover) {
+      .pk-row .pk-act:hover, .dev-row .pk-act:hover { color: var(--ink); background: var(--hover); }
+    }
+    .pk-row .pk-act.danger:hover, .dev-row .pk-act.danger:hover { color: var(--rose); }
+    .dev-row {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name name" "meta acts";
+      column-gap: 8px; row-gap: 1px; align-items: center; padding: 8px 6px 6px 11px;
+      border: 1px solid var(--line); border-radius: 11px;
+      background: linear-gradient(180deg, var(--card-top), var(--card-bot)), var(--card);
+    }
+    .dev-row .pk-name { grid-area: name; min-width: 0; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dev-row.here {
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), 0 0 18px -4px color-mix(in srgb, var(--accent) 45%, transparent);
+    }
+    .dev-row .pk-meta { grid-area: meta; min-width: 0; font-size: 11.5px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dev-row .dev-acts { grid-area: acts; display: flex; }
+    .pk-unlock {
+      width: 60px; height: 60px;
+      margin: 14px auto 0;
+      display: grid; place-items: center;
+      padding: 0;
+      background: none; border: 0; box-shadow: none; border-radius: 0;
+      color: var(--mute);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color .16s var(--ease), transform .12s var(--ease), opacity .16s var(--ease);
+    }
+    .pk-unlock[hidden] { display: none; }
+    @media (hover: hover) { .pk-unlock:hover { color: var(--ink); } }
+    .pk-unlock:active { transform: scale(.92); }
+    .pk-unlock:disabled { opacity: .45; cursor: default; }
+    .pk-ico { width: 40px; height: 40px; display: block; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .act-sep { height: 1px; margin: 4px 0; background: var(--line); }
+    /* Power down: a chunky push-button sunk into a bezel, IEC 5009 on its face. */
+    .power-btn {
+      display: grid; justify-items: center; gap: 9px;
+      margin: 2px auto 0;
+      padding: 4px 0 0;
+      background: none; border: 0; box-shadow: none; border-radius: 0;
+      cursor: pointer; color: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .power-bezel {
+      width: 62px; height: 62px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: radial-gradient(122% 122% at 50% 0%, #545b64 0%, #2a2f36 44%, #14171c 100%);
+      box-shadow:
+        inset 0 2px 3px rgba(255, 255, 255, .18),
+        inset 0 -4px 7px rgba(0, 0, 0, .72),
+        0 7px 16px -7px rgba(0, 0, 0, .68);
+    }
+    .power-face {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: linear-gradient(180deg, #434a53 0%, #262b31 56%, #1b1e23 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .24),
+        inset 0 -2px 5px rgba(0, 0, 0, .62),
+        0 3px 5px rgba(0, 0, 0, .5);
+      transition: transform .11s var(--ease), box-shadow .11s var(--ease);
+    }
+    .power-glyph {
+      width: 21px; height: 21px;
+      color: #d3dae2;
+      filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .65));
+      transition: color .11s var(--ease);
+    }
+    .power-label {
+      font-size: 12px; font-weight: 550; letter-spacing: .09em; text-transform: uppercase;
+      color: var(--mute);
+      transition: color .16s var(--ease);
+    }
+    @media (hover: hover) {
+      .power-btn:hover .power-face { background: linear-gradient(180deg, #4b525c 0%, #2b3138 56%, #1e2228 100%); }
+      .power-btn:hover .power-glyph { color: #eef3f8; }
+      .power-btn:hover .power-label { color: var(--ink); }
+    }
+    .power-btn:active .power-face {
+      transform: translateY(2.5px) scale(.972);
+      box-shadow: inset 0 3px 7px rgba(0, 0, 0, .8), inset 0 -1px 0 rgba(255, 255, 255, .05);
+    }
+    .power-btn:active .power-glyph { color: #949ca5; }
+    .power-btn:focus-visible .power-bezel {
+      outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+      outline-offset: 3px;
+    }
+    @media (prefers-reduced-motion: reduce) { .drawer, .scrim { transition: none; } }
+
+    /* CRT power-down (AstroPiggy): the picture folds into a scan line, the beam
+       flares, the line dies, and the gate wakes up out of the dark. */
+    html.crt-off, html.crt-off body { background: #02040a; }
+    html.crt-off .drawer,
+    html.crt-off .scrim {
+      animation: crt-collapse 760ms linear forwards;
+      pointer-events: none;
+    }
+    html.crt-off .drawer {
+      transition: none;
+      box-shadow: 0 0 0 1px rgba(190, 225, 255, .22), 0 0 34px 2px rgba(120, 180, 255, .18);
+    }
+    html.crt-off .wrap {
+      transform-origin: 50% 50%;
+      animation: crt-collapse 760ms linear forwards;
+      pointer-events: none;
+      background: var(--bg);
+      box-shadow: 0 0 0 1px rgba(190, 225, 255, .22), 0 0 34px 2px rgba(120, 180, 255, .18);
+    }
+    @keyframes crt-collapse {
+      0%   { transform: scaleY(1); filter: brightness(1) saturate(1); opacity: 1; animation-timing-function: cubic-bezier(.25, .5, .55, 1); }
+      14%  { transform: scaleY(.74); filter: brightness(1.15) saturate(.9); animation-timing-function: cubic-bezier(.55, 0, .75, .55); }
+      42%  { transform: scaleY(.09); filter: brightness(1.9) saturate(.3); animation-timing-function: cubic-bezier(.7, 0, .9, .6); }
+      56%  { transform: scaleY(.004); filter: brightness(2.8) saturate(0); opacity: 1; }
+      72%  { transform: scaleY(.004) scaleX(1); opacity: 1; }
+      100% { transform: scaleY(.004) scaleX(0); opacity: 0; }
+    }
+    #crt-beam {
+      position: fixed; left: 50%; top: 50%; z-index: 200;
+      width: 100vw; height: 2px;
+      translate: -50% -50%;
+      background: #fff; border-radius: 2px;
+      box-shadow: 0 0 22px 5px rgba(255, 255, 255, .8), 0 0 60px 12px rgba(150, 210, 255, .35);
+      opacity: 0; pointer-events: none; display: none;
+    }
+    html.crt-off #crt-beam { display: block; animation: crt-beam 760ms linear forwards; }
+    @keyframes crt-beam {
+      0%, 38%  { opacity: 0; transform: scaleX(1) scaleY(1); }
+      56%      { opacity: 1; transform: scaleX(1) scaleY(2.4); }
+      72%      { opacity: .95; transform: scaleX(1) scaleY(1); }
+      90%      { opacity: .8; transform: scaleX(.22) scaleY(1); }
+      100%     { opacity: 0; transform: scaleX(0) scaleY(.6); }
+    }
+    html.crt-on #gate { animation: crt-wake .42s var(--ease-out) both; }
+    @keyframes crt-wake { from { opacity: 0; } to { opacity: 1; } }
+    #crt-void {
+      position: fixed; inset: 0; z-index: 100;
+      background: #05060a;
+      opacity: 0; pointer-events: none; display: none;
+    }
+    html.crt-off #crt-void { display: block; animation: crt-void-in 760ms linear forwards; }
+    @keyframes crt-void-in { 0%, 74% { opacity: 0; } 100% { opacity: 1; } }
+    html.crt-on #crt-void { display: block; animation: crt-void-out .5s var(--ease-out) both; }
+    @keyframes crt-void-out { 0% { opacity: 1; } 18% { opacity: 1; } 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      html.crt-off .wrap, html.crt-off .drawer, html.crt-off .scrim,
+      html.crt-off #crt-beam, html.crt-on #gate { animation: none; }
+      html.crt-off .wrap { opacity: 0; }
+      html.crt-off #crt-void, html.crt-on #crt-void { display: none; animation: none; }
+    }
   </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet" />
+  <script>
+    // Signed in or not is settled before first paint (AstroPiggy's rule), so an
+    // authed reload never flashes the login screen and a signed-out one never
+    // flashes the app. The demo has no sign-in at all.
+    (function () {
+      try {
+        var authed = localStorage.getItem("xqueue.authed") === "1";
+        var chrome = JSON.parse(localStorage.getItem("xqueue_chrome") || "null");
+        if (!authed && !(chrome && chrome.demo)) document.documentElement.dataset.guest = "1";
+        // The old passphrase is never kept on a device any more.
+        localStorage.removeItem("xqueue_secret");
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
-  <div class="login-overlay" id="login" hidden>
-    <form class="login-box" id="loginForm">
-      <h1 class="logo">xqueue</h1>
-      <p class="login-sub">Enter your passphrase to continue</p>
-      <input type="password" id="loginInput" autocomplete="current-password"
-             placeholder="Passphrase" autocapitalize="off" autocorrect="off" spellcheck="false" />
-      <button type="submit" class="primary" id="loginBtn">Unlock</button>
-      <p class="login-error" id="loginError" hidden></p>
-    </form>
+  <!-- Sign-in, as AstroPiggy and Peekaboo: the launch code once per device, or
+       Face ID once a passkey exists. -->
+  <div id="gate">
+    <div class="gate-stack">
+      <div class="vault">
+        <h1 class="logo">xqueue</h1>
+        <form id="login-form">
+          <input id="secret" type="password" autocomplete="current-password" placeholder="Launch code"
+                 autocapitalize="off" autocorrect="off" spellcheck="false" />
+          <button type="submit" class="btn" id="login-btn">Launch</button>
+        </form>
+        <!-- Only shown when this browser supports passkeys AND one exists. -->
+        <button class="pk-unlock" id="passkey-unlock" type="button" hidden aria-label="Unlock with passkey">
+          <svg class="pk-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8.5V6a3 3 0 0 1 3-3h2.5M15.5 3H18a3 3 0 0 1 3 3v2.5M21 15.5V18a3 3 0 0 1-3 3h-2.5M8.5 21H6a3 3 0 0 1-3-3v-2.5"/>
+            <path d="M8.8 9.6v1.8M15.2 9.6v1.8"/>
+            <path d="M12 9.4v3.1h-1"/>
+            <path d="M9 15.6a4.2 4.2 0 0 0 6 0"/>
+          </svg>
+          <span class="sr-only">Unlock with passkey</span>
+        </button>
+        <p class="err" id="login-err"></p>
+      </div>
+    </div>
   </div>
+  <div id="crt-beam" aria-hidden="true"></div>
+  <div id="crt-void" aria-hidden="true"></div>
 
   <div class="wrap">
     <header>
@@ -995,10 +1334,13 @@
             <!-- options filled by JS from state.currencies -->
           </div>
         </div>
-        <!-- Visible footprint during boot (visibility:hidden via html.booting).
-             Demo hides for real after ready; prod shows Lock. Same pill as currency. -->
-        <button type="button" class="picker-btn lockbtn" id="lockBtn"
-                title="Lock (sign out)" aria-label="Lock">Lock</button>
+        <!-- Settings, as AstroPiggy: passkeys, signed-in devices, Power down. -->
+        <button class="icon-btn" id="open-admin" type="button" title="Settings" aria-label="Settings">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -1203,14 +1545,7 @@
           }
           var cur = document.getElementById("currencyValue");
           if (cur && c.currency) cur.textContent = String(c.currency);
-          var lock = document.getElementById("lockBtn");
-          if (c.demo) {
-            root.classList.add("demo");
-            if (lock) lock.hidden = true;
-          } else if (lock) {
-            lock.hidden = false;
-            lock.style.visibility = "";
-          }
+          if (c.demo) root.classList.add("demo");
           if (c.interval_hours != null && c.interval_hours !== "") {
             var iv = document.getElementById("intervals");
             if (iv) {
@@ -1264,6 +1599,52 @@
 
   <div class="toast" id="toast"></div>
 
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-label="Settings">
+    <div class="drawer-top">
+      <h2>Settings</h2>
+      <button class="icon-btn" id="close-admin" type="button" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
+    <p class="note">Passkeys</p>
+    <!-- A passkey belongs to a keychain, not a device: one covers every device on
+         the same Apple ID. -->
+    <p class="note pk-hint">One passkey covers every device on the same Apple ID. Add
+      another only for a different person, or a browser outside that keychain.</p>
+    <div class="actions">
+      <button class="btn" id="passkey-add" type="button">Add a passkey</button>
+    </div>
+    <div id="passkey-list" class="pk-list"></div>
+    <p class="note" id="passkey-status"></p>
+
+    <p class="note">Signed-in devices</p>
+    <!-- One row per sign-in. Signing a row out ends that device's session wherever it is. -->
+    <div id="device-list" class="pk-list"></div>
+    <div class="actions">
+      <button class="btn" id="device-revoke-others" type="button" hidden>Sign out all other devices</button>
+    </div>
+    <p class="note" id="device-status"></p>
+
+    <div class="actions">
+      <div class="act-sep" aria-hidden="true"></div>
+      <button class="power-btn" id="logout-drawer" type="button" aria-label="Power down">
+        <span class="power-bezel" aria-hidden="true">
+          <span class="power-face">
+            <svg class="power-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.1" stroke-linecap="round">
+              <path d="M7.05 6.9a7.5 7.5 0 1 0 9.9 0" />
+              <path d="M12 2.9v8.4" />
+            </svg>
+          </span>
+        </span>
+        <span class="power-label">Power down</span>
+      </button>
+    </div>
+  </aside>
+
   <div class="modal-overlay" id="modal" hidden>
     <div class="modal-box">
       <p class="modal-title" id="modalTitle"></p>
@@ -1277,7 +1658,9 @@
 
   <script>
     const INTERVALS = [1, 3, 6, 9, 12, 24, 0]; // 0 (∞) = paused: nothing auto-posts
-    let secret = localStorage.getItem("xqueue_secret") || "";
+    // Each device signs in once (launch code or passkey) and gets its own httpOnly
+    // session cookie, so nothing secret is kept in the page. Same as AstroPiggy.
+    const $ = (id) => document.getElementById(id);
 
     function syncIntervalActive() {
       const box = document.getElementById("intervals");
@@ -1361,29 +1744,22 @@
       "key takeaway", "game changer",
     ];
 
+    // The sign-in screen (AstroPiggy's gate). Shown on any 401.
     function showLogin(error) {
-      const el = document.getElementById("login");
-      el.hidden = false;
-      const errEl = document.getElementById("loginError");
-      errEl.textContent = error || "";
-      errEl.hidden = !error;
-      const input = document.getElementById("loginInput");
-      input.value = "";
-      input.focus();
-      // Logged out: never show Lock while the login gate is up.
-      const lockBtn = document.getElementById("lockBtn");
-      if (lockBtn) {
-        lockBtn.hidden = true;
-        lockBtn.style.visibility = "";
-      }
-      // End boot skeleton so login chrome is normal.
-      document.documentElement.classList.remove("booting");
-      document.documentElement.classList.add("ready");
-      document.documentElement.classList.remove("demo");
+      const root = document.documentElement;
+      root.dataset.guest = "1";
+      try { localStorage.removeItem("xqueue.authed"); } catch (_) { /* private mode */ }
+      setDrawer(false);
+      $("login-err").textContent = error || "";
+      root.classList.remove("booting");
+      root.classList.add("ready");
+      root.classList.remove("demo");
+      offerPasskeyUnlock();
     }
 
     function hideLogin() {
-      document.getElementById("login").hidden = true;
+      delete document.documentElement.dataset.guest;
+      $("login-err").textContent = "";
     }
 
     // After hard refresh: swap FOUC placeholders for real header chrome.
@@ -1393,15 +1769,6 @@
       root.classList.add("ready");
       if (state && state.demo) root.classList.add("demo");
       else root.classList.remove("demo");
-      const lockBtn = document.getElementById("lockBtn");
-      if (lockBtn) {
-        if (state && state.demo) {
-          lockBtn.hidden = true;
-        } else if (state) {
-          lockBtn.hidden = false;
-          lockBtn.style.visibility = "";
-        }
-      }
       saveHeaderChrome();
     }
 
@@ -1446,33 +1813,25 @@
       } catch (_) { /* private mode */ }
     }
 
-    // Validate a passphrase by hitting /api/state. On success, unlock + store.
-    // Empty pass is used for open demos (server skips auth when DEMO=1).
-    async function tryUnlock(pass) {
-      secret = pass == null ? "" : String(pass);
+    // Load the app with whatever this device has: its session cookie, or nothing
+    // on an open demo. False (and the gate) when it isn't signed in.
+    async function loadSignedIn() {
       try {
-        const res = await fetch("/api/state", {
-          headers: { "content-type": "application/json", "x-app-secret": secret },
-        });
+        const res = await fetch("/api/state", { headers: { "content-type": "application/json" }, credentials: "same-origin" });
         if (res.ok) {
-          // Only persist a real passphrase; open demo leaves storage empty.
-          if (secret) localStorage.setItem("xqueue_secret", secret);
-          else localStorage.removeItem("xqueue_secret");
           adoptState(await res.json());
+          if (!state.demo) {
+            try { localStorage.setItem("xqueue.authed", "1"); } catch (_) { /* private mode */ }
+          }
           hideLogin();
           render();
           finishHeaderBoot();
           return true;
         }
-        const data = await res.json().catch(() => ({}));
-        secret = "";
-        localStorage.removeItem("xqueue_secret");
-        // Caller may show login; avoid flashing error during open-access probe.
-        if (pass) showLogin(data.error || "Incorrect passphrase.");
+        showLogin("");
         return false;
       } catch (e) {
-        secret = "";
-        if (pass) showLogin("Connection error - try again.");
+        showLogin("Connection error - try again.");
         return false;
       }
     }
@@ -1480,13 +1839,12 @@
     async function api(path, opts = {}) {
       const res = await fetch(path, {
         ...opts,
-        headers: { "content-type": "application/json", "x-app-secret": secret, ...(opts.headers || {}) },
+        headers: { "content-type": "application/json", ...(opts.headers || {}) },
+        credentials: "same-origin",
       });
       if (res.status === 401 || res.status === 429) {
         const data = await res.json().catch(() => ({}));
-        localStorage.removeItem("xqueue_secret");
-        secret = "";
-        showLogin(data.error || "Session ended - sign in again.");
+        showLogin(res.status === 429 ? (data.error || "Too many attempts. Try later.") : "");
         throw new Error("unauthorized");
       }
       const data = await res.json().catch(() => ({}));
@@ -1774,16 +2132,6 @@
 
       const demoBanner = document.getElementById("demoBanner");
       if (demoBanner) demoBanner.hidden = !state.demo;
-      // Lock only for passphrase-protected instances (not demo / open access).
-      const lockBtn = document.getElementById("lockBtn");
-      if (lockBtn) {
-        if (state.demo) {
-          lockBtn.hidden = true;
-        } else {
-          lockBtn.hidden = false;
-          lockBtn.style.visibility = "";
-        }
-      }
       updateDemoAiNote();
       syncAiGenCountInput();
       finishHeaderBoot();
@@ -2197,11 +2545,9 @@
       if (thumb.blob && thumb.blob.size <= maxThumbBytes()) fd.append("thumb", thumb.blob, "thumb.jpg");
       fd.append("width", String(full.w));
       fd.append("height", String(full.h));
-      const res = await fetch("/api/media", { method: "POST", headers: { "x-app-secret": secret }, body: fd });
+      const res = await fetch("/api/media", { method: "POST", credentials: "same-origin", body: fd });
       if (res.status === 401) {
-        localStorage.removeItem("xqueue_secret");
-        secret = "";
-        showLogin("Session ended - sign in again.");
+        showLogin("");
         throw new Error("unauthorized");
       }
       const data = await res.json().catch(() => ({}));
@@ -2217,7 +2563,7 @@
       const v = variant === "full" ? "full" : "thumb";
       const key = id + ":" + v;
       if (!mediaUrls.has(key)) {
-        mediaUrls.set(key, fetch("/api/media/" + id + (v === "thumb" ? "?v=thumb" : ""), { headers: { "x-app-secret": secret } })
+        mediaUrls.set(key, fetch("/api/media/" + id + (v === "thumb" ? "?v=thumb" : ""), { credentials: "same-origin" })
           .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("image " + r.status))))
           .then((b) => URL.createObjectURL(b))
           .catch(() => { mediaUrls.delete(key); return null; }));
@@ -2500,8 +2846,8 @@
     }
 
     async function refresh() {
-      // Demo is open (empty secret) - still poll. Locked login has no state.
-      if (!state && !secret) return;
+      // Signed out: nothing to poll until the gate lets someone in.
+      if (!state || document.documentElement.dataset.guest === "1") return;
       if (editingId !== null || draftEditingId !== null) return; // don't clobber an in-progress edit
       if (currencyBusy) return; // don't overwrite an in-flight currency change
       if (swipeMode || reviewEditingId !== null) return; // don't fight the review UI
@@ -4357,41 +4703,456 @@
       });
     })();
 
-    document.getElementById("lockBtn").addEventListener("click", () => {
-      localStorage.removeItem("xqueue_secret");
-      secret = "";
+    // ---- Sign-in, passkeys, devices, Settings: AstroPiggy's (public/app.js) ----
+
+    /* ---- passkeys ---- */
+    const pkB64u = (buf) => {
+      const b = new Uint8Array(buf);
+      let s = "";
+      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    };
+    const pkBytes = (str) => {
+      const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+      const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/") + pad);
+      const u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return u;
+    };
+    const pkSupported = () =>
+      typeof window.PublicKeyCredential === "function" && !!(navigator.credentials && navigator.credentials.create);
+
+    /** A first guess at what to call this device, so the list is readable before renaming. */
+    function pkGuessLabel() {
+      const ua = navigator.userAgent || "";
+      const dev = /iPhone/.test(ua) ? "iPhone"
+        : /iPad/.test(ua) ? "iPad"
+        : /Android/.test(ua) ? "Android"
+        : /Mac OS X|Macintosh/.test(ua) ? "Mac"
+        : /Windows/.test(ua) ? "Windows"
+        : "Device";
+      const br = /CriOS|Chrome/.test(ua) ? "Chrome"
+        : /FxiOS|Firefox/.test(ua) ? "Firefox"
+        : /Edg/.test(ua) ? "Edge"
+        : /Safari/.test(ua) ? "Safari"
+        : "";
+      return br ? `${dev} · ${br}` : dev;
+    }
+
+    function pkDate(ms) {
+      return new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    }
+    function pkWhen(p) {
+      return p.lastUsedAt ? `used ${pkDate(p.lastUsedAt)}` : `added ${pkDate(p.createdAt)}`;
+    }
+
+    /* ---- signed-in devices ---- */
+
+    /** "Sydney · used 9 Oct": where it signed in from (Cloudflare's guess), then last use. */
+    function devWhen(d) {
+      const place = d.city ? d.city.replace(/, [A-Z]{2}$/, "") : "";
+      return [place, `used ${pkDate(d.lastUsedAt)}`].filter(Boolean).join(" · ");
+    }
+
+    // Settings asks with xqueue's own dialogs (no native prompt/confirm).
+    async function settingsApi(path, opts) {
+      const r = await api(path, opts);
+      if (!r || r.ok === false) throw new Error((r && r.error) || "Request failed");
+      return r;
+    }
+
+    /** One row per sign-in. Signing one out ends it on that device. */
+    async function loadDevices(given) {
+      const box = $("device-list");
+      if (!box) return;
+      try {
+        const list = given || (await settingsApi("/api/devices")).devices || [];
+        const others = list.filter((d) => !d.current).length;
+        $("device-revoke-others").hidden = !others;
+        if (!list.length) {
+          box.innerHTML = `<div class="note">No signed-in devices.</div>`;
+          return;
+        }
+        box.innerHTML = [...list]
+          .sort((a, b) => Number(!!b.current) - Number(!!a.current)) // this device first
+          .map(
+            (d) => `<div class="dev-row${d.current ? " here" : ""}" data-id="${escapeHtml(d.id)}"${d.current ? ' data-current="1"' : ""} title="${escapeHtml(`${d.current ? "This device · " : ""}Signed in ${pkDate(d.createdAt)}${d.city ? ` from ${d.city}` : ""} · ${d.autoLabel}`)}">
+              <span class="pk-name">${escapeHtml(d.label || "Device")}</span>
+              <span class="pk-meta">${escapeHtml(devWhen(d))}</span>
+              <span class="dev-acts"><button class="pk-act" data-act="rename" type="button">Rename</button><button class="pk-act danger" data-act="revoke" type="button">Sign out</button></span>
+            </div>`,
+          )
+          .join("");
+      } catch (err) {
+        if (err.message === "unauthorized") return;
+        box.innerHTML = `<div class="note">${escapeHtml(err.message || String(err))}</div>`;
+      }
+    }
+
+    $("device-list").addEventListener("click", async (e) => {
+      const btn = e.target.closest(".pk-act");
+      const row = btn && btn.closest(".dev-row"), id = row && row.dataset.id;
+      if (!id) return;
+      try {
+        let r;
+        if (btn.dataset.act === "rename") {
+          const shown = row.querySelector(".pk-name").textContent || "";
+          const label = await promptDialog({ title: "Name this device", value: shown, placeholder: "Empty for the automatic name", maxLength: 48, confirmLabel: "Save" });
+          if (label === null) return;
+          r = await settingsApi("/api/devices/label", { method: "POST", body: JSON.stringify({ id, label }) });
+        } else {
+          const here = !!row.dataset.current;
+          const ok = await confirmDialog({
+            title: here ? "Sign out of this device?" : "Sign this device out?",
+            body: here ? "" : "It will need the launch code or a passkey to get back in.",
+            confirmLabel: "Sign out",
+          });
+          if (!ok) return;
+          r = await settingsApi("/api/devices/revoke", { method: "POST", body: JSON.stringify({ id }) });
+          if (here) return location.reload();
+        }
+        await loadDevices(r.devices);
+      } catch (err) {
+        if (err.message !== "unauthorized") $("device-status").textContent = err.message || String(err);
+      }
+    });
+
+    $("device-revoke-others").addEventListener("click", async () => {
+      const ok = await confirmDialog({ title: "Sign out every other device?", body: "Only this one stays signed in.", confirmLabel: "Sign out" });
+      if (!ok) return;
+      try {
+        const r = await settingsApi("/api/devices/revoke-others", { method: "POST" });
+        await loadDevices(r.devices);
+      } catch (err) {
+        if (err.message !== "unauthorized") $("device-status").textContent = err.message || String(err);
+      }
+    });
+
+    async function loadPasskeys() {
+      const box = $("passkey-list");
+      if (!box) return;
+      try {
+        const r = await settingsApi("/api/passkey");
+        const list = r.passkeys || [];
+        $("passkey-add").textContent = list.length ? "Add another passkey" : "Add a passkey";
+        if (!list.length) {
+          box.innerHTML = `<div class="note">No passkeys yet. The launch code is the only way in.</div>`;
+          return;
+        }
+        box.innerHTML = list
+          .map(
+            (p) => `<div class="pk-row" data-id="${escapeHtml(p.id)}">
+              <span class="pk-name">${escapeHtml(p.label || "Passkey")}</span>
+              <span class="pk-meta">${escapeHtml(pkWhen(p))}</span>
+              <button class="pk-act" data-act="rename" type="button">Rename</button>
+              <button class="pk-act danger" data-act="remove" type="button">Remove</button>
+            </div>`,
+          )
+          .join("");
+      } catch (err) {
+        if (err.message === "unauthorized") return;
+        box.innerHTML = `<div class="note">${escapeHtml(err.message || String(err))}</div>`;
+      }
+    }
+
+    $("passkey-list").addEventListener("click", async (e) => {
+      const btn = e.target.closest(".pk-act");
+      if (!btn) return;
+      const id = btn.closest(".pk-row") && btn.closest(".pk-row").dataset.id;
+      if (!id) return;
+      try {
+        if (btn.dataset.act === "rename") {
+          const label = await promptDialog({ title: "Name this passkey", value: btn.closest(".pk-row").querySelector(".pk-name").textContent, maxLength: 48, confirmLabel: "Save" });
+          if (label === null) return;
+          await settingsApi(`/api/passkey/${encodeURIComponent(id)}/label`, { method: "POST", body: JSON.stringify({ label }) });
+        } else if (btn.dataset.act === "remove") {
+          const ok = await confirmDialog({ title: "Remove this passkey?", body: "The launch code will still work.", confirmLabel: "Remove", danger: true });
+          if (!ok) return;
+          await settingsApi(`/api/passkey/${encodeURIComponent(id)}`, { method: "DELETE" });
+        }
+        await loadPasskeys();
+      } catch (err) {
+        if (err.message !== "unauthorized") $("passkey-status").textContent = err.message || String(err);
+      }
+    });
+
+    $("passkey-add").addEventListener("click", async () => {
+      if (!pkSupported()) {
+        $("passkey-status").textContent = "This browser doesn't support passkeys.";
+        return;
+      }
+      const btn = $("passkey-add");
+      btn.disabled = true;
+      $("passkey-status").textContent = "Follow the prompt…";
+      try {
+        const o = await settingsApi("/api/passkey/register/start", { method: "POST" });
+        const cred = await navigator.credentials.create({
+          publicKey: {
+            challenge: pkBytes(o.challenge),
+            rp: { id: o.rpId, name: o.rpName },
+            user: { id: pkBytes(o.userId), name: o.userName, displayName: o.userName },
+            pubKeyCredParams: o.pubKeyCredParams,
+            authenticatorSelection: o.authenticatorSelection,
+            excludeCredentials: (o.excludeCredentials || []).map((x) => ({ type: "public-key", id: pkBytes(x.id) })),
+            attestation: "none",
+            timeout: 60000,
+          },
+        });
+        const res = cred.response;
+        // SPKI straight from the browser: this is what keeps CBOR out of the server.
+        const spki = res.getPublicKey && res.getPublicKey();
+        if (!spki) throw new Error("This browser didn't return a public key for the passkey.");
+        await settingsApi("/api/passkey/register/finish", {
+          method: "POST",
+          body: JSON.stringify({
+            id: pkB64u(cred.rawId),
+            publicKey: pkB64u(spki),
+            alg: res.getPublicKeyAlgorithm ? res.getPublicKeyAlgorithm() : -7,
+            authenticatorData: pkB64u(res.getAuthenticatorData()),
+            clientDataJSON: pkB64u(res.clientDataJSON),
+            transports: (res.getTransports && res.getTransports()) || [],
+            label: pkGuessLabel(),
+          }),
+        });
+        $("passkey-status").textContent =
+          "Passkey added. It syncs to your other Apple devices through the keychain, so they don't need their own.";
+        await loadPasskeys();
+      } catch (err) {
+        let msg = (err && err.message) || String(err);
+        if (err && err.name === "NotAllowedError") msg = "Cancelled.";
+        else if (err && err.name === "InvalidStateError") {
+          msg = "This device's keychain already has a passkey for xqueue. It's in the list below.";
+          await loadPasskeys();
+        }
+        if (msg !== "unauthorized") $("passkey-status").textContent = msg;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    /** The gate's passkey endpoints are public, so they cannot go through api(). */
+    async function pkPost(path, body) {
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) throw new Error(d.error || `HTTP ${r.status}`);
+      return d;
+    }
+
+    // A challenge fetched BEFORE the tap and kept ready: awaiting the network
+    // inside the click spends Safari's user activation and the prompt never opens.
+    let pkReady = null;
+    let pkTimer = 0;
+    async function pkPrime() {
+      try {
+        pkReady = await pkPost("/api/passkey/login/start");
+      } catch (_) {
+        pkReady = null;
+      }
+      clearTimeout(pkTimer);
+      pkTimer = setTimeout(pkPrime, 4 * 60 * 1000);
+    }
+
+    async function unlockWithPasskey() {
+      const o = pkReady || (await pkPost("/api/passkey/login/start"));
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge: pkBytes(o.challenge),
+          rpId: o.rpId,
+          userVerification: "required",
+          timeout: 60000,
+          allowCredentials: (o.allowCredentials || []).map((x) => ({
+            type: "public-key",
+            id: pkBytes(x.id),
+            transports: x.transports,
+          })),
+          hints: ["client-device"],
+        },
+      });
+      pkReady = null;
+      const r = assertion.response;
+      await pkPost("/api/passkey/login/finish", {
+        id: pkB64u(assertion.rawId),
+        authenticatorData: pkB64u(r.authenticatorData),
+        clientDataJSON: pkB64u(r.clientDataJSON),
+        signature: pkB64u(r.signature),
+      });
+      await loadSignedIn();
+    }
+
+    let pkBusy = false;
+    let pkBusyTimer = 0;
+    function pkSetBusy(on) {
+      pkBusy = on;
+      $("passkey-unlock").toggleAttribute("disabled", on);
+      clearTimeout(pkBusyTimer);
+      // iOS can dismiss its sheet without ever settling the promise.
+      if (on) pkBusyTimer = setTimeout(() => pkSetBusy(false), 60000);
+    }
+
+    $("passkey-unlock").addEventListener("click", async () => {
+      if (pkBusy) return;
+      pkSetBusy(true);
+      $("login-err").textContent = "";
+      const started = Date.now();
+      try {
+        await unlockWithPasskey();
+      } catch (err) {
+        // A cancel takes as long as a human takes; a refusal comes back at once.
+        const quick = Date.now() - started < 900;
+        $("login-err").textContent =
+          err && err.name !== "NotAllowedError" ? (err.message || String(err))
+          : quick ? "The passkey prompt didn't open. Tap again."
+          : "";
+        if (!pkReady) pkPrime();
+      } finally {
+        pkSetBusy(false);
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden || document.documentElement.dataset.guest !== "1") return;
+      pkSetBusy(false);
+      if (!$("passkey-unlock").hidden) pkPrime();
+    });
+
+    /** Offer Face ID only when it can open: WebAuthn support AND a passkey exists. */
+    async function offerPasskeyUnlock() {
+      const btn = $("passkey-unlock");
+      if (!pkSupported() || !btn.hidden) return;
+      try {
+        const r = await fetch("/api/passkey/available", { credentials: "same-origin" });
+        const d = await r.json().catch(() => ({}));
+        if (!d.any) return;
+      } catch (_) {
+        return;
+      }
+      btn.removeAttribute("hidden");
+      pkPrime();
+    }
+
+    $("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("login-err").textContent = "";
+      const typed = $("secret").value;
+      if (!typed.trim()) {
+        $("login-err").textContent = "Enter launch code";
+        $("secret").focus();
+        return;
+      }
+      const btn = $("login-btn");
+      btn.disabled = true;
+      try {
+        // Sent once to sign this device in, never kept: the session cookie carries it.
+        const r = await fetch("/api/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ secret: typed }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          $("login-err").textContent = d.error || "Incorrect launch code";
+          return;
+        }
+        $("secret").value = "";
+        await loadSignedIn();
+      } catch (_) {
+        $("login-err").textContent = "Connection error - try again.";
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    /* ---- Settings drawer ---- */
+    function setDrawer(open) {
+      const html = document.documentElement;
+      const drawer = $("drawer");
+      const wasOpen = drawer.classList.contains("open");
+      if (open && !wasOpen) {
+        const gap = window.innerWidth - html.clientWidth;
+        html.style.paddingRight = gap ? `${gap}px` : "";
+      }
+      if (!open) html.style.paddingRight = "";
+      drawer.classList.toggle("open", open);
+      $("scrim").classList.toggle("open", open);
+      html.classList.toggle("drawer-open", open);
+      // Fetched when the pane opens, not at boot.
+      if (open && !wasOpen) {
+        $("passkey-status").textContent = "";
+        $("device-status").textContent = "";
+        loadPasskeys();
+        loadDevices();
+      }
+    }
+
+    $("drawer").addEventListener(
+      "wheel",
+      (e) => {
+        const el = e.currentTarget;
+        const dy = e.deltaY;
+        if (!dy) return;
+        const top = el.scrollTop;
+        const max = Math.max(0, el.scrollHeight - el.clientHeight);
+        if ((dy < 0 && top <= 0) || (dy > 0 && top >= max - 1)) e.preventDefault();
+      },
+      { passive: false },
+    );
+    $("scrim").addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+    $("open-admin").addEventListener("click", (e) => { e.stopPropagation(); setDrawer(true); });
+    $("close-admin").addEventListener("click", () => setDrawer(false));
+    $("scrim").addEventListener("click", () => setDrawer(false));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && $("modal").hidden) setDrawer(false);
+    });
+
+    const CRT_MS = 760;
+    const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    /** Power down like a CRT: the picture folds into a line, the beam flares, it dies. */
+    function crtPowerDown() {
+      const html = document.documentElement;
+      if (reduceMotion()) return Promise.resolve();
+      const app = document.querySelector(".wrap");
+      if (app) app.style.transformOrigin = `50% ${window.scrollY + window.innerHeight / 2}px`;
+      html.classList.remove("crt-on");
+      html.classList.add("crt-off");
+      return new Promise((done) => setTimeout(done, CRT_MS));
+    }
+
+    async function logout() {
+      const dead = crtPowerDown();
+      try {
+        await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
+      } catch (_) {
+        /* still clear the local session */
+      }
+      await dead;
       state = null;
       historyExtra = [];
       queueVisible = 50;
       if (swipeMode) closeSwipeMode({ openPanel: false });
-      document.getElementById("reviewPanel").hidden = true;
-      showLogin();
-    });
-
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const val = document.getElementById("loginInput").value.trim();
-      if (!val) return;
-      const btn = document.getElementById("loginBtn");
-      btn.disabled = true;
-      btn.textContent = "Checking…";
-      await tryUnlock(val);
-      btn.disabled = false;
-      btn.textContent = "Unlock";
-    });
+      $("reviewPanel").hidden = true;
+      setDrawer(false);
+      const app = document.querySelector(".wrap");
+      if (app) app.style.transformOrigin = "";
+      $("secret").value = "";
+      showLogin("");
+      // Off, then on: the gate wakes up out of the dark.
+      const html = document.documentElement;
+      html.classList.remove("crt-off");
+      html.classList.add("crt-on");
+      setTimeout(() => html.classList.remove("crt-on"), 600);
+    }
+    $("logout-drawer").addEventListener("click", () => logout());
 
     updateCount();
-    // Boot: try stored passphrase, then open access (demo / no APP_SECRET).
-    // Demo instances skip auth server-side so empty secret succeeds.
-    (async function boot() {
-      if (secret) {
-        const ok = await tryUnlock(secret);
-        if (ok) return;
-      }
-      // Open / demo: no passphrase required.
-      const openOk = await tryUnlock("");
-      if (!openOk) showLogin();
-    })();
+    // Boot: this device's session cookie (or an open demo) lets it straight in;
+    // otherwise the gate.
+    loadSignedIn();
     setInterval(refresh, 30000); // keep countdown / usage fresh
   </script>
 </body>

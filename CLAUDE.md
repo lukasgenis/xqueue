@@ -67,8 +67,16 @@ branch; it will drift.
 ## Conventions / gotchas
 
 - **`[hidden]` vs `display`:** global `[hidden] { display: none !important }`
-- **No native dialogs:** `confirmDialog()` and login page only
-- **Auth:** `x-app-secret` header; rate limit + constant-time compare
+- **No native dialogs:** `confirmDialog()` / `promptDialog()` (Settings uses them too, where AstroPiggy uses prompt/confirm)
+- **Auth (copied from AstroPiggy, keep the three apps identical):** the launch
+  code (`APP_SECRET`, xqueue's own value) is typed once per device at the gate
+  → `POST /api/login` mints a per-device session (`xq_session` httpOnly cookie,
+  30 days sliding, D1 `device_sessions` keeps only the SHA-256). Passkeys
+  (Face ID) via `/api/passkey/*` (plain WebCrypto, no CBOR, RP ID = hostname).
+  Settings drawer (gear, top right): Passkeys, Signed-in devices, Power down
+  (CRT animation). `x-app-secret` header still opens everything (scripts).
+  Rate limit 20 fails / 15 min per IP across every door. Nothing secret in
+  localStorage; `xqueue.authed` only picks gate vs app before first paint
 - **X posting:** OAuth 1.0a, Web Crypto HMAC-SHA1; signature base excludes JSON body
 - **D1 read-after-write lag:** serialize client actions where it matters
 - **Daily cap:** `DAILY_CAP = 17` in scheduler and post-now paths

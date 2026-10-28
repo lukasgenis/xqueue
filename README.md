@@ -63,7 +63,9 @@ features past the daily free pool.
   **+$0.005 per photo with alt text**, shown in your display currency (up to 3
   decimals so it is not rounded to $0.02)
 - **Currency toggle** — USD (default), EUR, GBP, AUD, CAD, NZD, JPY
-- **Passphrase login** — single shared secret + per-IP rate limit (production)
+- **Sign-in** — a launch code (`APP_SECRET`) typed once per device, then a
+  per-device session cookie; optional passkeys (Face ID). Settings (gear) lists
+  passkeys and signed-in devices, each one sign-out-able; per-IP rate limit
 
 ## Cost estimates (read this)
 
@@ -158,8 +160,9 @@ npx wrangler secret put X_ACCESS_SECRET
 npx wrangler secret put APP_SECRET
 ```
 
-The UI asks for this once and stores it in `localStorage` (sent as
-`x-app-secret` on every `/api/*` call).
+The UI asks for this once per device and swaps it for that device's own
+session cookie; nothing secret is kept in the browser. Scripts can still send
+it as the `x-app-secret` header.
 
 ### 5. Deploy
 
