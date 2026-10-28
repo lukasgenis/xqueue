@@ -452,20 +452,25 @@
       .item { flex-direction: column; align-items: stretch; }
       .item .body { width: 100%; } /* ensure text + edit textarea span the row */
       .item.queued .body,
+      .item.draft-row .body,
       .item.review-row .body { cursor: pointer; }
       .item.queued .item-actions,
+      .item.draft-row .item-actions,
       .item.review-row .item-actions { display: none; }
       .item.queued.expanded .item-actions,
+      .item.draft-row.expanded .item-actions,
       .item.review-row.expanded .item-actions {
         display: flex; width: 100%; gap: 8px;
         margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
       }
       .item.queued.expanded .item-actions .iconbtn,
+      .item.draft-row.expanded .item-actions .iconbtn,
       .item.review-row.expanded .item-actions .iconbtn {
         flex: 1; border: 1px solid var(--border); border-radius: 8px;
         padding: 10px 0; font-size: 18px;
       }
-      .item.queued.expanded .item-actions .iconbtn.send { border-color: var(--accent-dim); }
+      .item.queued.expanded .item-actions .iconbtn.send,
+      .item.draft-row.expanded .item-actions .iconbtn.send { border-color: var(--accent-dim); }
     }
     .import-panel {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
@@ -933,11 +938,8 @@
     .item.draft { flex-direction: column; align-items: stretch; }
     .draft-note { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
     .badge.source { color: var(--accent); border-color: var(--accent-dim); }
-    .draft-actions { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; flex-wrap: wrap; }
-    .draft-actions button { padding: 5px 13px; font-size: 13px; }
     .draft-warn { color: var(--danger); }
     @media (max-width: 520px) {
-      .draft-actions button { flex: 1 1 0; padding: 9px 6px; font-size: 14px; min-height: 40px; }
       .tab { padding: 9px 10px; font-size: 14px; }
     }
 
@@ -1720,6 +1722,7 @@
     let historyExtra = []; // older history rows loaded past the first page (Load more)
     let activeTab = "queue"; // which list tab is showing: "queue" | "history" | "drafts"
     let draftEditingId = null; // id of the draft currently being edited, or null
+    let draftExpandedId = null; // id of the draft whose actions are revealed (mobile)
     let activeEditor = null; // { key, root } so a re-render keeps unsaved edits
     let composerMedia = []; // [{ id, alt }] or { pending: true } while uploading
     let reviewEditingId = null; // deck-list row being edited
@@ -2362,6 +2365,9 @@
         const len = (item.text || "").length;
         const over = len > MAX_LEN;
         const note = photoNote(item.media);
+        // Same shape as a queued post: text + meta, icon actions on the right on
+        // desktop, revealed by a tap on mobile.
+        el.className = "item draft-row" + (item.id === draftExpandedId ? " expanded" : "");
         el.innerHTML = `
           <div class="body">
             <div class="txt"></div>
@@ -2371,32 +2377,53 @@
               <span>· ${money(item.cost_usd)}${note ? " · " + escapeHtml(note) : ""}${textHasLink(item.text) ? ' <span class="cost link" title="X charges much more for posts with URLs; estimate is plain text only">(link)</span>' : ""}</span>
               ${over ? '<span class="draft-warn">over 280, edit first</span>' : ""}
             </div>
-            <div class="draft-actions"></div>
           </div>`;
         const body = el.querySelector(".body");
         body.prepend(draftNoteEl(item));
         el.querySelector(".txt").textContent = item.text;
         if (item.media && item.media.length) el.querySelector(".txt").after(thumbsEl(item.media));
-        const actions = el.querySelector(".draft-actions");
-        const dismiss = document.createElement("button");
-        dismiss.className = "btn-secondary";
-        dismiss.textContent = "Dismiss";
-        dismiss.onclick = () => draftAction(item, "dismiss");
-        const edit = document.createElement("button");
-        edit.className = "btn-secondary";
-        edit.textContent = "Edit";
-        edit.onclick = () => { draftEditingId = item.id; activeEditor = null; render(); };
-        const post = document.createElement("button");
-        post.className = "btn-secondary";
-        post.textContent = "Post now";
-        post.disabled = over;
-        post.onclick = () => draftAction(item, "post");
+        if (isTouch) {
+          body.addEventListener("click", (e) => {
+            if (e.target.closest("button") || e.target.closest("a")) return;
+            draftExpandedId = draftExpandedId === item.id ? null : item.id;
+            render();
+          });
+        }
+        const controls = document.createElement("div");
+        controls.className = "item-actions";
+
         const queue = document.createElement("button");
-        queue.className = "primary";
-        queue.textContent = "Queue";
+        queue.className = "iconbtn";
+        queue.textContent = "＋";
+        queue.title = "Add to queue";
+        queue.setAttribute("aria-label", "Add to queue");
         queue.disabled = over;
         queue.onclick = () => draftAction(item, "queue");
-        actions.append(dismiss, edit, post, queue);
+
+        const send = document.createElement("button");
+        send.className = "iconbtn send";
+        send.textContent = "➤";
+        send.title = "Post this now";
+        send.setAttribute("aria-label", "Post this now");
+        send.disabled = over;
+        send.onclick = () => draftAction(item, "post");
+
+        const edit = document.createElement("button");
+        edit.className = "iconbtn";
+        edit.textContent = "✎";
+        edit.title = "Edit";
+        edit.setAttribute("aria-label", "Edit");
+        edit.onclick = () => { draftEditingId = item.id; draftExpandedId = null; activeEditor = null; render(); };
+
+        const del = document.createElement("button");
+        del.className = "iconbtn del";
+        del.textContent = "×";
+        del.title = "Dismiss";
+        del.setAttribute("aria-label", "Dismiss");
+        del.onclick = () => draftAction(item, "dismiss");
+
+        controls.append(queue, send, edit, del);
+        el.appendChild(controls); // sibling of body: right side on desktop, row below on mobile
         d.appendChild(el);
       });
     }
@@ -2419,6 +2446,16 @@
     let draftBusy = false; // serialize draft actions (D1 read-after-write lag)
     async function draftAction(item, action) {
       if (draftBusy) return;
+      if (action === "dismiss") {
+        const ok = await confirmDialog({
+          title: "Dismiss this draft?",
+          body: item.text,
+          quote: true,
+          confirmLabel: "Dismiss",
+          danger: true,
+        });
+        if (!ok) return;
+      }
       if (action === "post") {
         const extra = photoNote(item.media);
         const ok = await confirmDialog({
@@ -2435,6 +2472,7 @@
           ? await api("/api/drafts/" + item.id, { method: "DELETE" })
           : await api("/api/drafts/" + item.id + "/" + (action === "post" ? "post" : "queue"), { method: "POST", body: "{}" });
         if (res.ok) {
+          draftExpandedId = null;
           state = res;
           render();
           toast(action === "dismiss" ? "Dismissed" : action === "post" ? "Posted ✅" : "Queued");

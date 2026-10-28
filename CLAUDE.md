@@ -60,7 +60,9 @@ branch; it will drift.
 - **Drafts tab:** `drafts` table, suggestions to check (AstroPiggy). Ingest
   `POST /api/drafts` `{ drafts: [{ text, note, source, key, images: [{ data
   (base64), mime, alt }] }] }`; `key` dedupes forever (dismiss keeps the row).
-  Queue/Post now move it into `queue`
+  Queue/Post now move it into `queue`. Rows look and act like queued rows
+  (`.item.draft-row`: icon actions ＋ queue, ➤ post now, ✎ edit, × dismiss with
+  confirm; tap to reveal on mobile, `draftExpandedId`)
 - No neuron usage meter that fakes a live remaining balance
 - Avoid em dashes in frontend UI copy
 
